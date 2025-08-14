@@ -14,7 +14,7 @@ version = "0.1.0"
 authors = ["Moses Contributors"]
 edition = "2021"
 license = "MIT OR Apache-2.0"
-repository = "https://github.com/yourusername/moses"
+repository = "https://github.com/onuse/moses"
 
 [workspace.dependencies]
 serde = { version = "1.0", features = ["derive"] }
