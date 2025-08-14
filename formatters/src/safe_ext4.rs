@@ -1,5 +1,5 @@
-/// Example of a formatter that properly uses the safety system
-/// This shows best practices for implementing safe formatters
+//! Example of a formatter that properly uses the safety system
+//! This shows best practices for implementing safe formatters
 
 use moses_core::{Device, FilesystemFormatter, FormatOptions, MosesError, Platform, SimulationReport};
 use moses_core::{SafetyCheck, RiskLevel};
@@ -61,16 +61,14 @@ impl FilesystemFormatter for SafeExt4Formatter {
         
         // STEP 1: Verify not a system drive
         safety_check.verify_not_system_drive()
-            .map_err(|e| {
+            .inspect_err(|_| {
                 eprintln!("🚨 SAFETY VIOLATION: Attempted to format system drive!");
-                e
             })?;
         
         // STEP 2: Verify mount points are safe
         safety_check.verify_safe_mount_points()
-            .map_err(|e| {
+            .inspect_err(|_| {
                 eprintln!("🚨 SAFETY VIOLATION: Critical mount points detected!");
-                e
             })?;
         
         // STEP 3: Add custom checks specific to ext4
@@ -78,9 +76,8 @@ impl FilesystemFormatter for SafeExt4Formatter {
         
         // STEP 4: Acknowledge data loss (in production, get from user)
         safety_check.acknowledge_data_loss(true)
-            .map_err(|e| {
+            .inspect_err(|_| {
                 eprintln!("⚠️ Data loss acknowledgment required");
-                e
             })?;
         
         // STEP 5: Final risk assessment

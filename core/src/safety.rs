@@ -1,7 +1,7 @@
-/// Safety enforcement system for Moses formatters
-/// 
-/// This module ensures that ALL formatters MUST perform safety checks
-/// before being allowed to format any device. It's impossible to bypass.
+//! Safety enforcement system for Moses formatters
+//! 
+//! This module ensures that ALL formatters MUST perform safety checks
+//! before being allowed to format any device. It's impossible to bypass.
 
 use crate::{Device, FormatOptions, MosesError};
 use std::collections::HashSet;
@@ -132,13 +132,12 @@ impl SafetyCheck {
     pub fn verify_not_system_drive(&mut self) -> Result<(), MosesError> {
         self.system_drive_check.check_performed = true;
         
-        if self.system_drive_check.is_system_drive {
-            if self.system_drive_check.override_reason.is_none() {
+        if self.system_drive_check.is_system_drive
+            && self.system_drive_check.override_reason.is_none() {
                 return Err(MosesError::UnsafeDevice(
                     "Cannot format system drive without explicit override reason".to_string()
                 ));
             }
-        }
         Ok(())
     }
     
@@ -146,14 +145,13 @@ impl SafetyCheck {
     pub fn verify_safe_mount_points(&mut self) -> Result<(), MosesError> {
         self.mount_point_check.check_performed = true;
         
-        if self.mount_point_check.has_critical_mounts {
-            if self.mount_point_check.override_reason.is_none() {
+        if self.mount_point_check.has_critical_mounts
+            && self.mount_point_check.override_reason.is_none() {
                 return Err(MosesError::UnsafeDevice(
                     format!("Cannot format drive with critical mount points: {:?}", 
                             self.mount_point_check.critical_mounts_found)
                 ));
             }
-        }
         Ok(())
     }
     

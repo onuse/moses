@@ -75,11 +75,11 @@ impl ScriptFormatter {
         
         let mut cmd = if cfg!(target_os = "windows") {
             let mut c = Command::new("cmd");
-            c.args(&["/C", command]);
+            c.args(["/C", command]);
             c
         } else {
             let mut c = Command::new("sh");
-            c.args(&["-c", command]);
+            c.args(["-c", command]);
             c
         };
         
@@ -99,7 +99,7 @@ impl ScriptFormatter {
             cmd.output()
         ).await
             .map_err(|_| MosesError::Timeout("Command execution timed out".to_string()))?
-            .map_err(|e| MosesError::IoError(e))?;
+            .map_err(MosesError::IoError)?;
         
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())

@@ -118,7 +118,7 @@ impl LinuxDeviceManager {
     async fn parse_lsblk_output(&self) -> Result<Vec<Device>, MosesError> {
         // Run lsblk to get device information
         let output = Command::new("lsblk")
-            .args(&["-b", "-P", "-o", "NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,VENDOR,RM,RO"])
+            .args(["-b", "-P", "-o", "NAME,SIZE,TYPE,MOUNTPOINT,FSTYPE,MODEL,VENDOR,RM,RO"])
             .output()
             .map_err(|e| MosesError::Other(format!("Failed to run lsblk: {}", e)))?;
         
@@ -235,7 +235,7 @@ impl LinuxDeviceManager {
         
         // List partitions using lsblk
         if let Ok(output) = Command::new("lsblk")
-            .args(&["-b", "-n", "-o", "NAME,SIZE,FSTYPE,MOUNTPOINT", device_path])
+            .args(["-b", "-n", "-o", "NAME,SIZE,FSTYPE,MOUNTPOINT", device_path])
             .output() {
             
             let output_str = String::from_utf8_lossy(&output.stdout);
@@ -351,7 +351,7 @@ impl DeviceManager for LinuxDeviceManager {
         // Calculate used/free space if mounted
         let (used_space, free_space) = if !device.mount_points.is_empty() {
             if let Ok(output) = Command::new("df")
-                .args(&["-B1", device.mount_points[0].to_str().unwrap_or("")])
+                .args(["-B1", device.mount_points[0].to_str().unwrap_or("")])
                 .output() {
                 
                 let output_str = String::from_utf8_lossy(&output.stdout);

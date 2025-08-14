@@ -111,13 +111,11 @@ impl Ext4LinuxFormatter {
         // Read progress from stderr (mkfs.ext4 outputs progress there)
         if let Some(stderr) = child.stderr.take() {
             let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    // Parse progress lines like "Writing inode tables: 142/256"
-                    if line.contains("Writing") || line.contains("Creating") || line.contains("Allocating") {
-                        // In a real implementation, we'd send this progress to the GUI
-                        eprintln!("Progress: {}", line);
-                    }
+            for line in reader.lines().map_while(Result::ok) {
+                // Parse progress lines like "Writing inode tables: 142/256"
+                if line.contains("Writing") || line.contains("Creating") || line.contains("Allocating") {
+                    // In a real implementation, we'd send this progress to the GUI
+                    eprintln!("Progress: {}", line);
                 }
             }
         }
@@ -241,10 +239,10 @@ impl FilesystemFormatter for Ext4LinuxFormatter {
         // Estimate time based on device size and quick format option
         let estimated_seconds = if options.quick_format {
             // Quick format: ~1 second per 10GB
-            (device.size / 10_000_000_000) as u64 + 5
+            (device.size / 10_000_000_000) + 5
         } else {
             // Full format: ~10 seconds per 10GB
-            (device.size / 1_000_000_000) as u64 + 10
+            (device.size / 1_000_000_000) + 10
         };
         
         Ok(SimulationReport {

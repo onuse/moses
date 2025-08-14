@@ -46,7 +46,7 @@ impl MockDevice {
     }
 
     pub fn was_formatted(&self) -> bool {
-        self.format_history.lock().unwrap().len() > 0
+        !self.format_history.lock().unwrap().is_empty()
     }
 
     pub fn format_count(&self) -> usize {
@@ -58,6 +58,12 @@ impl MockDevice {
 pub struct MockDeviceManager {
     devices: Vec<Device>,
     enumerate_call_count: Arc<Mutex<usize>>,
+}
+
+impl Default for MockDeviceManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl MockDeviceManager {
