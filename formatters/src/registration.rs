@@ -9,6 +9,10 @@ use crate::ntfs::NtfsFormatter;
 use crate::fat32::Fat32Formatter;
 use crate::exfat::ExFatFormatter;
 
+// Import Ext4Formatter for non-Windows/Linux platforms (e.g., macOS)
+#[cfg(not(any(target_os = "windows", target_os = "linux")))]
+use crate::ext4::Ext4Formatter;
+
 #[cfg(target_os = "windows")]
 use crate::ext4_windows::Ext4WindowsFormatter;
 #[cfg(target_os = "windows")]

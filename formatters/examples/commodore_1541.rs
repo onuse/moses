@@ -160,7 +160,7 @@ impl FilesystemFormatter for Commodore1541Formatter {
         self.validate_options(options).await?;
         
         let mut warnings = Vec::new();
-        let mut required_tools = vec!["cc1541".to_string()];
+        let required_tools = vec!["cc1541".to_string()];
         
         // Check if tool is available
         if which::which("cc1541").is_err() {

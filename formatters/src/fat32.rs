@@ -82,7 +82,7 @@ impl Fat32Formatter {
     
     #[cfg(target_os = "macos")]
     async fn format_macos(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
-        let mut cmd_args = vec![
+        let cmd_args = vec![
             "eraseDisk",
             "FAT32",
             options.label.as_deref().unwrap_or("UNTITLED"),

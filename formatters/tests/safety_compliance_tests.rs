@@ -5,7 +5,7 @@
 
 use moses_core::{
     Device, DeviceType, FilesystemFormatter, FormatOptions, 
-    SafetyCheck, RiskLevel
+    SafetyCheck
 };
 use std::path::PathBuf;
 
@@ -44,16 +44,20 @@ macro_rules! test_formatter_safety {
             #[test]
             fn must_reject_critical_mounts() {
                 let formatter = $formatter;
-                let mut critical_mounts = vec![
+                
+                #[cfg(target_os = "windows")]
+                let critical_mounts = vec![
+                    PathBuf::from("/"),
+                    PathBuf::from("/boot"),
+                    PathBuf::from("C:\\"),
+                    PathBuf::from("C:\\Windows"),
+                ];
+                
+                #[cfg(not(target_os = "windows"))]
+                let critical_mounts = vec![
                     PathBuf::from("/"),
                     PathBuf::from("/boot"),
                 ];
-                
-                #[cfg(target_os = "windows")]
-                {
-                    critical_mounts.push(PathBuf::from("C:\\"));
-                    critical_mounts.push(PathBuf::from("C:\\Windows"));
-                }
                 
                 for mount in critical_mounts {
                     let device = create_device_with_mount(mount.clone());
