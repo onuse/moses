@@ -3,7 +3,7 @@
     <!-- Title Bar -->
     <div class="title-bar">
       <div class="title-bar-content">
-        <img src="/icon.png" class="app-icon" alt="">
+        <!-- Icon removed temporarily -->
         <span class="app-title">Moses Drive Formatter</span>
       </div>
       <div class="title-bar-controls">
