@@ -3,6 +3,7 @@ pub mod ntfs;
 pub mod fat32;
 pub mod exfat;
 pub mod registration;
+pub mod safe_ext4;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;
