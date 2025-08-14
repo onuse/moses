@@ -566,6 +566,7 @@ dependencies = [
  "nix",
  "serde",
  "tokio",
+ "tokio-test",
  "which",
 ]
 

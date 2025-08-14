@@ -44,12 +44,16 @@ macro_rules! test_formatter_safety {
             #[test]
             fn must_reject_critical_mounts() {
                 let formatter = $formatter;
-                let critical_mounts = vec![
+                let mut critical_mounts = vec![
                     PathBuf::from("/"),
                     PathBuf::from("/boot"),
-                    PathBuf::from("C:\\"),
-                    PathBuf::from("C:\\Windows"),
                 ];
+                
+                #[cfg(target_os = "windows")]
+                {
+                    critical_mounts.push(PathBuf::from("C:\\"));
+                    critical_mounts.push(PathBuf::from("C:\\Windows"));
+                }
                 
                 for mount in critical_mounts {
                     let device = create_device_with_mount(mount.clone());
@@ -213,7 +217,7 @@ mod safety_performance {
 /// Test helpers
 fn create_system_drive() -> Device {
     Device {
-        id: if cfg!(windows) { 
+        id: if cfg!(target_os = "windows") { 
             r"\\.\PHYSICALDRIVE0".to_string() 
         } else { 
             "/dev/sda".to_string() 
@@ -222,7 +226,7 @@ fn create_system_drive() -> Device {
         size: 500_000_000_000,
         device_type: DeviceType::SSD,
         mount_points: vec![
-            if cfg!(windows) {
+            if cfg!(target_os = "windows") {
                 PathBuf::from("C:\\")
             } else {
                 PathBuf::from("/")
@@ -235,7 +239,7 @@ fn create_system_drive() -> Device {
 
 fn create_safe_usb() -> Device {
     Device {
-        id: if cfg!(windows) {
+        id: if cfg!(target_os = "windows") {
             r"\\.\PHYSICALDRIVE2".to_string()
         } else {
             "/dev/sdb".to_string()
@@ -251,7 +255,7 @@ fn create_safe_usb() -> Device {
 
 fn create_risky_device() -> Device {
     Device {
-        id: if cfg!(windows) {
+        id: if cfg!(target_os = "windows") {
             r"\\.\PHYSICALDRIVE1".to_string()
         } else {
             "/dev/sda2".to_string()
