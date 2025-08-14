@@ -53,6 +53,7 @@ impl ExFatFormatter {
         }
     }
     
+    #[allow(dead_code)]
     async fn format_unmounted_windows(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
         let disk_number = device.id
             .trim_start_matches("\\\\.\\PHYSICALDRIVE")

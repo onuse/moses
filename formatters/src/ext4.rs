@@ -48,8 +48,8 @@ impl FilesystemFormatter for Ext4Formatter {
     
     async fn format(
         &self,
-        device: &Device,
-        options: &FormatOptions,
+        _device: &Device,
+        _options: &FormatOptions,
     ) -> Result<(), MosesError> {
         // Mock implementation
         Err(MosesError::Other("Not yet implemented".to_string()))

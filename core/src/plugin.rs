@@ -1,3 +1,5 @@
+#![allow(async_fn_in_trait)]
+
 use std::sync::Arc;
 use async_trait::async_trait;
 use crate::{FilesystemFormatter, FormatterMetadata, MosesError};

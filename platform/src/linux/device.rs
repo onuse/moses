@@ -7,6 +7,7 @@ use std::process::Command;
 pub struct LinuxDeviceManager;
 
 impl LinuxDeviceManager {
+    #[allow(dead_code)]
     fn parse_size(size_str: &str) -> Option<u64> {
         // Parse sizes like "16G", "500M", "1.5T"
         let size_str = size_str.trim();

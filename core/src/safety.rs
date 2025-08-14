@@ -308,6 +308,7 @@ fn get_critical_mount_points() -> HashSet<String> {
 /// Safety enforcer that wraps formatters and ensures checks are performed
 pub struct SafeFormatter<F> {
     inner: F,
+    #[allow(dead_code)]
     require_validation: bool,
     audit_log: Vec<SafetyValidation>,
 }
@@ -382,7 +383,7 @@ impl<F: crate::FilesystemFormatter> crate::FilesystemFormatter for SafeFormatter
             .map_err(|errors| MosesError::UnsafeDevice(errors.join("; ")))?;
         
         // Log the validation
-        let mut self_mut = self as *const Self as *mut Self;
+        let self_mut = self as *const Self as *mut Self;
         unsafe {
             (*self_mut).audit_log.push(validation.clone());
         }

@@ -54,7 +54,7 @@ impl FilesystemFormatter for SafeExt4Formatter {
     async fn format(
         &self,
         device: &Device,
-        options: &FormatOptions,
+        _options: &FormatOptions,
     ) -> Result<(), MosesError> {
         // MANDATORY: Create and complete safety check
         let mut safety_check = SafetyCheck::new(device, self.name());
