@@ -162,6 +162,9 @@ jobs:
           librsvg2-dev \
           libjavascriptcoregtk-4.1-dev
     
+    - name: Install root dependencies
+      run: npm ci
+    
     - name: Install frontend dependencies
       run: |
         cd ui
