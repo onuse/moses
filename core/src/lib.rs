@@ -4,6 +4,9 @@ pub mod filesystem;
 pub mod format;
 pub mod registry;
 
+#[cfg(test)]
+pub mod test_utils;
+
 pub use device::{Device, DeviceInfo, DeviceManager, DeviceType, PermissionLevel, Partition};
 pub use error::MosesError;
 pub use filesystem::{FilesystemFormatter, FormatOptions, Platform, SimulationReport};

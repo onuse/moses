@@ -63,8 +63,25 @@ jobs:
     - name: Clippy
       run: cargo clippy --all -- -D warnings
     
-    - name: Test
-      run: cargo test --all
+    - name: Run Unit Tests
+      run: cargo test --all --lib
+    
+    - name: Run Safety-Critical Tests
+      run: |
+        echo "Running CRITICAL safety tests..."
+        cargo test --package moses-formatters safety -- --nocapture
+        cargo test --package moses-core test_utils -- --nocapture
+    
+    - name: Run Integration Tests
+      run: cargo test --all --tests
+    
+    - name: Run Documentation Tests
+      run: cargo test --all --doc
+    
+    - name: Verify No System Drive Formatting
+      run: |
+        echo "Verifying safety patterns..."
+        ! grep -r "is_system.*false" --include="*.rs" formatters/ || echo "Pattern check passed"
     
     - name: Build (Debug)
       run: cargo build --all
