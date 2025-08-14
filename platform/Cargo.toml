@@ -1,0 +1,22 @@
+[package]
+name = "moses-platform"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+moses-core = { path = "../core" }
+async-trait = "0.1"
+serde = { workspace = true }
+anyhow = { workspace = true }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Ioctl",
+] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+nix = { version = "0.27", features = ["fs", "mount", "user"] }

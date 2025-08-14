@@ -1,0 +1,86 @@
+# Git attributes for Moses project
+# Ensures consistent line endings and proper file handling across platforms
+
+# Auto detect text files and perform LF normalization
+* text=auto eol=lf
+
+# Force LF for these files (even on Windows)
+*.rs text eol=lf
+*.toml text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.js text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.jsx text eol=lf
+*.vue text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+LICENSE text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+
+# Force CRLF for Windows-specific files
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Shell scripts should always use LF
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+
+# Binary files - do not modify
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.icns binary
+*.pdf binary
+*.zip binary
+*.tar.gz binary
+*.7z binary
+*.exe binary
+*.dll binary
+*.so binary
+*.dylib binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.eot binary
+*.otf binary
+
+# Rust specific
+Cargo.lock text eol=lf linguist-generated
+
+# Mark vendored/generated files
+target/ linguist-generated
+node_modules/ linguist-vendored
+dist/ linguist-generated
+ui/dist/ linguist-generated
+src-tauri/target/ linguist-generated
+src-tauri/WixTools/ linguist-vendored
+
+# Language statistics - ensure correct language detection
+*.rs linguist-language=Rust
+*.vue linguist-language=Vue
+*.ts linguist-language=TypeScript
+docs/*.md linguist-documentation
+
+# Diff settings
+*.rs diff=rust
+*.md diff=markdown
+
+# Export ignore - files to exclude from archive exports
+.github export-ignore
+.gitignore export-ignore
+.gitattributes export-ignore
+docs/TODO.md export-ignore
+scripts/test/ export-ignore
+*.log export-ignore
+test-* export-ignore

@@ -1,0 +1,31 @@
+{
+  "name": "moses",
+  "version": "1.0.0",
+  "description": "Moses is a cross-platform drive formatting tool designed to provide a zero-hassle experience for users who need to format drives with various filesystems across Windows, macOS, and Linux. The tool addresses the gap in the market for a truly cross-platform formatting solution, particularly for filesystems like EXT4 on Windows where existing solutions are either expensive or unreliable.",
+  "main": "index.js",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "tauri": "tauri"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/onuse/moses.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/onuse/moses/issues"
+  },
+  "homepage": "https://github.com/onuse/moses#readme",
+  "devDependencies": {
+    "@tauri-apps/api": "^2.7.0",
+    "@vitejs/plugin-vue": "^6.0.1",
+    "typescript": "^5.9.2",
+    "vite": "^7.1.2",
+    "vue": "^3.5.18"
+  }
+}

@@ -1,0 +1,17 @@
+[package]
+name = "moses-cli"
+version.workspace = true
+authors.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "moses"
+path = "src/main.rs"
+
+[dependencies]
+moses-core = { path = "../core" }
+moses-platform = { path = "../platform" }
+clap = { workspace = true }
+tokio = { workspace = true }
+anyhow = { workspace = true }

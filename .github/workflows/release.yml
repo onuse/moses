@@ -1,0 +1,199 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    outputs:
+      upload_url: ${{ steps.create_release.outputs.upload_url }}
+      version: ${{ steps.get_version.outputs.version }}
+    
+    steps:
+    - name: Get version from tag
+      id: get_version
+      run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+    
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Moses ${{ steps.get_version.outputs.version }}
+        draft: true
+        prerelease: false
+        body: |
+          # Moses ${{ steps.get_version.outputs.version }}
+          
+          ## What's New
+          - 
+          
+          ## Downloads
+          See assets below for pre-built binaries.
+          
+          ### Installation
+          
+          #### Windows
+          Download and run the `.msi` installer or use the standalone `.exe`
+          
+          #### macOS
+          Download and mount the `.dmg` or extract the `.app` bundle
+          
+          #### Linux
+          Use the `.AppImage` (recommended), `.deb` (Debian/Ubuntu), or `.rpm` (Fedora/RHEL)
+          
+          ## Checksums
+          ```
+          SHA256 checksums will be added here
+          ```
+
+  build-release:
+    name: Build Release
+    needs: create-release
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: moses
+            asset_name: moses-linux-amd64
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: moses.exe
+            asset_name: moses-windows-amd64.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: moses
+            asset_name: moses-macos-amd64
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            artifact_name: moses
+            asset_name: moses-macos-arm64
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Install Rust
+      uses: actions-rust-lang/setup-rust-toolchain@v1
+      with:
+        toolchain: stable
+        target: ${{ matrix.target }}
+    
+    - name: Setup Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '20'
+        cache: 'npm'
+    
+    - name: Install Linux dependencies
+      if: matrix.os == 'ubuntu-latest'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          libgtk-3-dev \
+          libwebkit2gtk-4.1-dev \
+          libayatana-appindicator3-dev \
+          librsvg2-dev \
+          libjavascriptcoregtk-4.1-dev
+    
+    - name: Install frontend dependencies
+      run: |
+        cd ui
+        npm ci
+        npm run build
+    
+    - name: Build Tauri app (Release)
+      run: npm run tauri build -- --target ${{ matrix.target }}
+    
+    # Upload CLI binaries
+    - name: Upload CLI Release Asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: target/${{ matrix.target }}/release/${{ matrix.artifact_name }}
+        asset_name: ${{ matrix.asset_name }}
+        asset_content_type: application/octet-stream
+    
+    # Upload Windows installer
+    - name: Upload Windows MSI
+      if: matrix.os == 'windows-latest'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: src-tauri/target/${{ matrix.target }}/release/bundle/msi/Moses_${{ needs.create-release.outputs.version }}_x64.msi
+        asset_name: Moses-${{ needs.create-release.outputs.version }}-windows.msi
+        asset_content_type: application/x-msi
+    
+    # Upload macOS DMG
+    - name: Upload macOS DMG
+      if: matrix.os == 'macos-latest' && matrix.target == 'x86_64-apple-darwin'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: src-tauri/target/${{ matrix.target }}/release/bundle/dmg/Moses_${{ needs.create-release.outputs.version }}_x64.dmg
+        asset_name: Moses-${{ needs.create-release.outputs.version }}-macos-intel.dmg
+        asset_content_type: application/x-apple-diskimage
+    
+    # Upload Linux AppImage
+    - name: Upload Linux AppImage
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: src-tauri/target/${{ matrix.target }}/release/bundle/appimage/Moses_${{ needs.create-release.outputs.version }}_amd64.AppImage
+        asset_name: Moses-${{ needs.create-release.outputs.version }}-linux.AppImage
+        asset_content_type: application/x-executable
+    
+    # Upload Linux DEB
+    - name: Upload Linux DEB
+      if: matrix.os == 'ubuntu-latest'
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: src-tauri/target/${{ matrix.target }}/release/bundle/deb/moses_${{ needs.create-release.outputs.version }}_amd64.deb
+        asset_name: Moses-${{ needs.create-release.outputs.version }}-linux.deb
+        asset_content_type: application/x-debian-package
+
+  generate-checksums:
+    name: Generate Checksums
+    needs: [create-release, build-release]
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+    
+    - name: Generate SHA256 checksums
+      run: |
+        sha256sum moses-* > checksums.txt
+        cat checksums.txt
+    
+    - name: Upload checksums
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ needs.create-release.outputs.upload_url }}
+        asset_path: ./checksums.txt
+        asset_name: checksums.txt
+        asset_content_type: text/plain
