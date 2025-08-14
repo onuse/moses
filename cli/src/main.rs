@@ -1,6 +1,8 @@
 use clap::{Parser, Subcommand};
-use moses_core::DeviceManager;
+use moses_core::{DeviceManager, FormatterRegistry, FormatterCategory};
 use moses_platform::PlatformDeviceManager;
+use moses_formatters::register_builtin_formatters;
+use std::sync::Arc;
 
 #[derive(Parser)]
 #[command(name = "moses")]
@@ -18,15 +20,31 @@ enum Commands {
     Format {
         /// Device identifier
         device: String,
-        /// Filesystem type (ext4, ntfs, fat32, exfat)
+        /// Filesystem type (ext4, ntfs, fat32, exfat, etc.)
         #[arg(short, long)]
         filesystem: String,
+    },
+    /// List available formatters
+    ListFormats {
+        /// Filter by category (modern, legacy, historical, console, embedded, experimental)
+        #[arg(short, long)]
+        category: Option<String>,
+    },
+    /// Show detailed information about a formatter
+    FormatInfo {
+        /// Formatter name or alias
+        name: String,
     },
 }
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
+    
+    // Initialize formatter registry
+    let mut registry = FormatterRegistry::new();
+    register_builtin_formatters(&mut registry)?;
+    let registry = Arc::new(registry);
     
     match cli.command {
         Commands::List => {
@@ -57,6 +75,10 @@ async fn main() -> anyhow::Result<()> {
             }
         }
         Commands::Format { device, filesystem } => {
+            // Check if formatter is available
+            let formatter = registry.get_formatter(&filesystem)
+                .ok_or_else(|| anyhow::anyhow!("Unknown filesystem type: '{}'. Use 'moses list-formats' to see available formats.", filesystem))?;
+            
             // Get the device manager
             let manager = PlatformDeviceManager;
             
@@ -72,9 +94,34 @@ async fn main() -> anyhow::Result<()> {
                 return Ok(());
             }
             
+            // Check if formatter can handle this device
+            if !formatter.can_format(target_device) {
+                eprintln!("Error: {} formatter cannot format this device", filesystem);
+                if let Some(meta) = registry.get_metadata(&filesystem) {
+                    if let Some(min) = meta.min_size {
+                        if target_device.size < min {
+                            eprintln!("  Device too small. Minimum size: {} bytes", min);
+                        }
+                    }
+                    if let Some(max) = meta.max_size {
+                        if target_device.size > max {
+                            eprintln!("  Device too large. Maximum size: {} bytes", max);
+                        }
+                    }
+                }
+                return Ok(());
+            }
+            
             println!("Target device: {}", target_device.name);
             println!("  Size: {:.2} GB", target_device.size as f64 / 1_073_741_824.0);
             println!("  Type: {:?}", target_device.device_type);
+            
+            // Show formatter info
+            if let Some(meta) = registry.get_metadata(&filesystem) {
+                println!("\nFormatter: {} ({})", meta.name, meta.description);
+                println!("  Category: {:?}", meta.category);
+                println!("  Version: {}", meta.version);
+            }
             println!();
             
             // Create format options
@@ -87,59 +134,106 @@ async fn main() -> anyhow::Result<()> {
                 additional_options: std::collections::HashMap::new(),
             };
             
-            // Use the appropriate formatter based on filesystem and platform
-            match filesystem.as_str() {
-                "ext4" => {
-                    #[cfg(target_os = "windows")]
-                    {
-                        use moses_formatters::Ext4WindowsFormatter;
-                        use moses_core::FilesystemFormatter;
-                        
-                        let formatter = Ext4WindowsFormatter;
-                        
-                        // First do a dry run
-                        println!("Running simulation...");
-                        let simulation = formatter.dry_run(target_device, &options).await?;
-                        
-                        println!("\nSimulation Report:");
-                        println!("  Estimated time: {:?}", simulation.estimated_time);
-                        println!("  Required tools: {:?}", simulation.required_tools);
-                        if !simulation.warnings.is_empty() {
-                            println!("  Warnings:");
-                            for warning in &simulation.warnings {
-                                println!("    - {}", warning);
-                            }
-                        }
-                        
-                        println!("\nWARNING: This will ERASE ALL DATA on {}!", target_device.name);
-                        println!("Type 'yes' to continue: ");
-                        
-                        use std::io::{self, BufRead};
-                        let stdin = io::stdin();
-                        let mut line = String::new();
-                        stdin.lock().read_line(&mut line)?;
-                        
-                        if line.trim() != "yes" {
-                            println!("Format cancelled.");
-                            return Ok(());
-                        }
-                        
-                        println!("\nFormatting {} as EXT4...", target_device.name);
-                        match formatter.format(target_device, &options).await {
-                            Ok(_) => println!("Format completed successfully!"),
-                            Err(e) => eprintln!("Format failed: {}", e),
-                        }
-                    }
-                    
-                    #[cfg(not(target_os = "windows"))]
-                    {
-                        println!("EXT4 formatting not yet implemented for this platform");
-                    }
-                }
-                _ => {
-                    println!("Filesystem '{}' not yet implemented", filesystem);
+            // Run dry run first
+            println!("Running simulation...");
+            let simulation = formatter.dry_run(target_device, &options).await?;
+            
+            println!("\nSimulation Report:");
+            println!("  Estimated time: {:?}", simulation.estimated_time);
+            if !simulation.required_tools.is_empty() {
+                println!("  Required tools: {:?}", simulation.required_tools);
+            }
+            if !simulation.warnings.is_empty() {
+                println!("  Warnings:");
+                for warning in &simulation.warnings {
+                    println!("    - {}", warning);
                 }
             }
+            
+            println!("\nWARNING: This will ERASE ALL DATA on {}!", target_device.name);
+            println!("Type 'yes' to continue: ");
+            
+            use std::io::{self, BufRead};
+            let stdin = io::stdin();
+            let mut line = String::new();
+            stdin.lock().read_line(&mut line)?;
+            
+            if line.trim() != "yes" {
+                println!("Format cancelled.");
+                return Ok(());
+            }
+            
+            println!("\nFormatting {} as {}...", target_device.name, filesystem.to_uppercase());
+            match formatter.format(target_device, &options).await {
+                Ok(_) => println!("Format completed successfully!"),
+                Err(e) => eprintln!("Format failed: {}", e),
+            }
+        }
+        Commands::ListFormats { category } => {
+            println!("Available Formatters:\n");
+            
+            if let Some(cat_str) = category {
+                // Parse category
+                let cat = match cat_str.to_lowercase().as_str() {
+                    "modern" => FormatterCategory::Modern,
+                    "legacy" => FormatterCategory::Legacy,
+                    "historical" => FormatterCategory::Historical,
+                    "console" => FormatterCategory::Console,
+                    "embedded" => FormatterCategory::Embedded,
+                    "experimental" => FormatterCategory::Experimental,
+                    _ => {
+                        eprintln!("Unknown category: {}", cat_str);
+                        return Ok(());
+                    }
+                };
+                
+                let formatters = registry.list_by_category(cat);
+                if formatters.is_empty() {
+                    println!("No formatters found in category: {:?}", cat);
+                } else {
+                    for (name, meta) in formatters {
+                        println!("  {} - {}", name, meta.description);
+                        if !meta.aliases.is_empty() {
+                            println!("    Aliases: {:?}", meta.aliases);
+                        }
+                    }
+                }
+            } else {
+                // List all formatters by category
+                let categories = [
+                    FormatterCategory::Modern,
+                    FormatterCategory::Legacy,
+                    FormatterCategory::Historical,
+                    FormatterCategory::Console,
+                    FormatterCategory::Embedded,
+                    FormatterCategory::Experimental,
+                ];
+                
+                for cat in categories {
+                    let formatters = registry.list_by_category(cat.clone());
+                    if !formatters.is_empty() {
+                        println!("{:?}:", cat);
+                        for (name, meta) in formatters {
+                            println!("  {} - {}", name, meta.description);
+                            if !meta.aliases.is_empty() {
+                                println!("    Aliases: {:?}", meta.aliases);
+                            }
+                        }
+                        println!();
+                    }
+                }
+            }
+            
+            println!("\nUse 'moses format-info <name>' for detailed information about a formatter.");
+        }
+        Commands::FormatInfo { name } => {
+            if let Some(info) = moses_formatters::get_formatter_info(&registry, &name) {
+                println!("{}", info);
+            } else {
+                eprintln!("Formatter '{}' not found.", name);
+                eprintln!("Use 'moses list-formats' to see available formatters.");
+            }
+        }
         }
     }
     
