@@ -20,10 +20,10 @@ jobs:
         rust: [stable]
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
       with:
         toolchain: ${{ matrix.rust }}
         components: rustfmt, clippy
@@ -40,19 +40,19 @@ jobs:
           libjavascriptcoregtk-4.1-dev
     
     - name: Cache cargo registry
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/registry
         key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
     
     - name: Cache cargo index
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: ~/.cargo/git
         key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
     
     - name: Cache cargo build
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: target
         key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
@@ -106,10 +106,10 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
       with:
         toolchain: stable
     
@@ -117,7 +117,7 @@ jobs:
       run: cargo build --package moses-cli --release
     
     - name: Upload CLI artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: moses-cli-${{ matrix.os }}
         path: |
@@ -138,15 +138,15 @@ jobs:
             target: x86_64-apple-darwin
     
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
     
     - name: Install Rust
-      uses: actions-rust-lang/setup-rust-toolchain@v1
+      uses: actions-rust-lang/setup-rust-toolchain@v1.13.0
       with:
         toolchain: stable
     
     - name: Setup Node.js
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@v4.4.0
       with:
         node-version: '20'
         cache: 'npm'
@@ -173,7 +173,7 @@ jobs:
     
     - name: Upload GUI artifacts (Windows)
       if: matrix.os == 'windows-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: moses-gui-windows
         path: |
@@ -182,7 +182,7 @@ jobs:
     
     - name: Upload GUI artifacts (macOS)
       if: matrix.os == 'macos-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: moses-gui-macos
         path: |
@@ -191,7 +191,7 @@ jobs:
     
     - name: Upload GUI artifacts (Linux)
       if: matrix.os == 'ubuntu-latest'
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: moses-gui-linux
         path: |
