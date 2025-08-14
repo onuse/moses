@@ -175,7 +175,23 @@ impl FilesystemFormatter for ExFatFormatter {
     
     fn can_format(&self, device: &Device) -> bool {
         // exFAT supports very large drives (up to 128 PB theoretical)
-        !device.is_system
+        if device.is_system {
+            return false;
+        }
+        
+        // Check for critical mount points
+        for mount in &device.mount_points {
+            let mount_str = mount.to_string_lossy().to_lowercase();
+            if mount_str == "/" || 
+               mount_str == "c:\\" || 
+               mount_str.starts_with("/boot") ||
+               mount_str.starts_with("c:\\windows") ||
+               mount_str.starts_with("c:\\program") {
+                return false;
+            }
+        }
+        
+        true
     }
     
     fn requires_external_tools(&self) -> bool {

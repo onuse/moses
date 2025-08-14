@@ -115,7 +115,23 @@ impl FilesystemFormatter for Fat32Formatter {
     
     fn can_format(&self, device: &Device) -> bool {
         // FAT32 max size is 2TB (some implementations support up to 8TB)
-        !device.is_system && device.size <= 2 * 1024_u64.pow(4)
+        if device.is_system {
+            return false;
+        }
+        
+        // Check for critical mount points
+        for mount in &device.mount_points {
+            let mount_str = mount.to_string_lossy().to_lowercase();
+            if mount_str == "/" || 
+               mount_str == "c:\\" || 
+               mount_str.starts_with("/boot") ||
+               mount_str.starts_with("c:\\windows") ||
+               mount_str.starts_with("c:\\program") {
+                return false;
+            }
+        }
+        
+        device.size <= 2 * 1024_u64.pow(4)
     }
     
     fn requires_external_tools(&self) -> bool {

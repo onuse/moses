@@ -99,7 +99,7 @@ impl FormatterRegistry {
     pub fn find_by_platform(&self, platform: Platform) -> Vec<(&str, &FormatterMetadata)> {
         self.metadata
             .iter()
-            .filter(|(name, meta)| {
+            .filter(|(name, _meta)| {
                 if let Some(formatter) = self.formatters.get(*name) {
                     formatter.supported_platforms().contains(&platform)
                 } else {

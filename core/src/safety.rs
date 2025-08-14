@@ -5,7 +5,7 @@
 
 use crate::{Device, FormatOptions, MosesError};
 use std::collections::HashSet;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use chrono::{DateTime, Utc};
 use serde::{Serialize, Deserialize};
 
@@ -69,7 +69,7 @@ pub struct CustomSafetyCheck {
     pub details: String,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RiskLevel {
     Safe,           // Removable drive, no mounts, not system
     Low,            // Non-system drive with non-critical mounts

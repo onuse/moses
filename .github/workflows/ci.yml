@@ -68,9 +68,21 @@ jobs:
     
     - name: Run Safety-Critical Tests
       run: |
-        echo "Running CRITICAL safety tests..."
+        echo "🛡️ Running CRITICAL safety tests..."
         cargo test --package moses-formatters safety -- --nocapture
         cargo test --package moses-core test_utils -- --nocapture
+    
+    - name: Run Safety Compliance Suite
+      run: |
+        echo "🔒 Running mandatory safety compliance tests..."
+        cargo test --package moses-formatters --test safety_compliance_tests -- --nocapture --test-threads=1
+      env:
+        RUST_TEST_THREADS: 1
+    
+    - name: Verify Formatter Safety Certification
+      run: |
+        echo "✅ Verifying all formatters meet safety certification requirements..."
+        cargo test --package moses-formatters generate_safety_compliance_report -- --nocapture --exact
     
     - name: Run Integration Tests
       run: cargo test --all --tests
