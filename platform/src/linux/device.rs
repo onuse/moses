@@ -1,4 +1,5 @@
 use moses_core::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, Partition, PermissionLevel};
+use async_trait::async_trait;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -263,7 +264,7 @@ impl LinuxDeviceManager {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl DeviceManager for LinuxDeviceManager {
     async fn enumerate_devices(&self) -> Result<Vec<Device>, MosesError> {
         // First try lsblk which is more reliable

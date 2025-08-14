@@ -1,8 +1,7 @@
-use moses_core::{Device, DeviceManager, DeviceType, FilesystemFormatter, FormatOptions, SimulationReport};
-use std::sync::Arc;
-use std::time::Duration;
+use moses_core::{Device, DeviceManager, FilesystemFormatter, FormatOptions, SimulationReport};
 
 use moses_platform::PlatformDeviceManager;
+use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
 
 #[cfg(target_os = "linux")]
 use moses_formatters::Ext4LinuxFormatter;
@@ -23,49 +22,56 @@ async fn simulate_format(
     device: Device,
     options: FormatOptions,
 ) -> Result<SimulationReport, String> {
-    // Use real formatter's dry_run for EXT4
-    if options.filesystem_type == "ext4" {
-        #[cfg(target_os = "linux")]
-        {
-            let formatter = Ext4LinuxFormatter;
-            return formatter.dry_run(&device, &options)
-                .await
-                .map_err(|e| format!("Simulation failed: {}", e));
-        }
-        
-        #[cfg(target_os = "windows")]
-        {
-            let formatter = Ext4WindowsFormatter;
-            return formatter.dry_run(&device, &options)
-                .await
-                .map_err(|e| format!("Simulation failed: {}", e));
-        }
-    }
-    
-    // Fallback mock simulation for other cases
-    let mut warnings = Vec::new();
-    
-    if device.is_system {
-        warnings.push("This is a system drive. Formatting will make your system unbootable!".to_string());
-    }
-    
-    if options.filesystem_type == "ext4" && cfg!(target_os = "windows") {
-        warnings.push("EXT4 formatting on Windows requires bundled tools".to_string());
-    }
-    
-    Ok(SimulationReport {
-        device: device.clone(),
-        options: options.clone(),
-        estimated_time: Duration::from_secs(if options.quick_format { 30 } else { 300 }),
-        warnings,
-        required_tools: if options.filesystem_type == "ext4" && cfg!(target_os = "windows") {
-            vec!["ext2fsd".to_string()]
-        } else {
-            vec![]
+    // Select the appropriate formatter based on filesystem type
+    match options.filesystem_type.as_str() {
+        "ext4" => {
+            #[cfg(target_os = "linux")]
+            {
+                let formatter = Ext4LinuxFormatter;
+                formatter.dry_run(&device, &options)
+                    .await
+                    .map_err(|e| format!("Simulation failed: {}", e))
+            }
+            
+            #[cfg(target_os = "windows")]
+            {
+                let formatter = Ext4WindowsFormatter;
+                formatter.dry_run(&device, &options)
+                    .await
+                    .map_err(|e| format!("Simulation failed: {}", e))
+            }
+            
+            #[cfg(target_os = "macos")]
+            {
+                Err("EXT4 formatting not yet implemented on macOS".to_string())
+            }
         },
-        will_erase_data: true,
-        space_after_format: device.size - (device.size / 100), // ~99% available
-    })
+        
+        "ntfs" => {
+            let formatter = NtfsFormatter;
+            formatter.dry_run(&device, &options)
+                .await
+                .map_err(|e| format!("Simulation failed: {}", e))
+        },
+        
+        "fat32" => {
+            let formatter = Fat32Formatter;
+            formatter.dry_run(&device, &options)
+                .await
+                .map_err(|e| format!("Simulation failed: {}", e))
+        },
+        
+        "exfat" => {
+            let formatter = ExFatFormatter;
+            formatter.dry_run(&device, &options)
+                .await
+                .map_err(|e| format!("Simulation failed: {}", e))
+        },
+        
+        _ => {
+            Err(format!("Unsupported filesystem type: {}", options.filesystem_type))
+        }
+    }
 }
 
 #[tauri::command]
@@ -73,47 +79,87 @@ async fn execute_format(
     device: Device,
     options: FormatOptions,
 ) -> Result<String, String> {
-    // Check if system drive
+    // Safety check - never format system drives
     if device.is_system {
-        return Err("Cannot format system drive".to_string());
+        return Err("Cannot format system drive. This would make your system unbootable!".to_string());
     }
     
-    // Handle EXT4 formatting
-    if options.filesystem_type == "ext4" {
-        #[cfg(target_os = "linux")]
-        {
-            let formatter = Ext4LinuxFormatter;
-            
-            // First validate the options
-            formatter.validate_options(&options)
-                .await
-                .map_err(|e| format!("Invalid options: {}", e))?;
-            
-            // Check if device can be formatted
-            if !formatter.can_format(&device) {
-                return Err("Device cannot be formatted (mounted or system device)".to_string());
+    // Additional safety check for critical mount points
+    for mount in &device.mount_points {
+        let mount_str = mount.to_string_lossy().to_lowercase();
+        if mount_str == "/" || 
+           mount_str == "c:\\" || 
+           mount_str.starts_with("/boot") ||
+           mount_str.starts_with("/system") ||
+           mount_str.starts_with("c:\\windows") {
+            return Err(format!("Cannot format drive with critical mount point: {}", mount_str));
+        }
+    }
+    
+    // Select and execute the appropriate formatter
+    match options.filesystem_type.as_str() {
+        "ext4" => {
+            #[cfg(target_os = "linux")]
+            {
+                let formatter = Ext4LinuxFormatter;
+                
+                // Validate options
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                // Check if device can be formatted
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted (mounted or system device)".to_string());
+                }
+                
+                // Execute the format
+                formatter.format(&device, &options)
+                    .await
+                    .map_err(|e| format!("Format failed: {}", e))?;
+                
+                Ok(format!("Successfully formatted {} as EXT4", device.name))
             }
             
-            // Execute the format
-            formatter.format(&device, &options)
-                .await
-                .map_err(|e| format!("Format failed: {}", e))?;
+            #[cfg(target_os = "windows")]
+            {
+                let formatter = Ext4WindowsFormatter;
+                
+                // Validate options
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                // Check if device can be formatted
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted (mounted or system device)".to_string());
+                }
+                
+                // Execute the format
+                formatter.format(&device, &options)
+                    .await
+                    .map_err(|e| format!("Format failed: {}", e))?;
+                
+                Ok(format!("Successfully formatted {} as EXT4 via WSL2", device.name))
+            }
             
-            return Ok(format!("Successfully formatted {} as EXT4", device.name));
-        }
+            #[cfg(target_os = "macos")]
+            {
+                Err("EXT4 formatting not yet implemented on macOS".to_string())
+            }
+        },
         
-        #[cfg(target_os = "windows")]
-        {
-            let formatter = Ext4WindowsFormatter;
+        "ntfs" => {
+            let formatter = NtfsFormatter;
             
-            // First validate the options
+            // Validate options
             formatter.validate_options(&options)
                 .await
                 .map_err(|e| format!("Invalid options: {}", e))?;
             
             // Check if device can be formatted
             if !formatter.can_format(&device) {
-                return Err("Device cannot be formatted (mounted or system device)".to_string());
+                return Err("Device cannot be formatted (system device or critical mount points)".to_string());
             }
             
             // Execute the format
@@ -121,13 +167,160 @@ async fn execute_format(
                 .await
                 .map_err(|e| format!("Format failed: {}", e))?;
             
-            return Ok(format!("Successfully formatted {} as EXT4", device.name));
+            Ok(format!("Successfully formatted {} as NTFS", device.name))
+        },
+        
+        "fat32" => {
+            let formatter = Fat32Formatter;
+            
+            // Validate options
+            formatter.validate_options(&options)
+                .await
+                .map_err(|e| format!("Invalid options: {}", e))?;
+            
+            // Check if device can be formatted
+            if !formatter.can_format(&device) {
+                return Err("Device cannot be formatted (system device, critical mount points, or too large for FAT32)".to_string());
+            }
+            
+            // Check size limit
+            if device.size > 2 * 1024_u64.pow(4) {
+                return Err("Device too large for FAT32. Maximum size is 2TB. Consider using exFAT or NTFS.".to_string());
+            }
+            
+            // Warn about Windows 32GB limitation
+            #[cfg(target_os = "windows")]
+            {
+                if device.size > 32 * 1024_u64.pow(3) {
+                    eprintln!("Warning: Windows limits FAT32 formatting to 32GB. Format may fail for larger drives.");
+                }
+            }
+            
+            // Execute the format
+            formatter.format(&device, &options)
+                .await
+                .map_err(|e| format!("Format failed: {}", e))?;
+            
+            Ok(format!("Successfully formatted {} as FAT32", device.name))
+        },
+        
+        "exfat" => {
+            let formatter = ExFatFormatter;
+            
+            // Validate options
+            formatter.validate_options(&options)
+                .await
+                .map_err(|e| format!("Invalid options: {}", e))?;
+            
+            // Check if device can be formatted
+            if !formatter.can_format(&device) {
+                return Err("Device cannot be formatted (system device or critical mount points)".to_string());
+            }
+            
+            // Execute the format
+            formatter.format(&device, &options)
+                .await
+                .map_err(|e| format!("Format failed: {}", e))?;
+            
+            Ok(format!("Successfully formatted {} as exFAT", device.name))
+        },
+        
+        _ => {
+            Err(format!("Unsupported filesystem type: {}", options.filesystem_type))
         }
     }
+}
+
+#[tauri::command]
+async fn check_formatter_requirements(filesystem_type: String) -> Result<Vec<String>, String> {
+    // Check what tools are required for each filesystem
+    let mut missing_tools = Vec::new();
     
-    // Fallback mock implementation for unsupported filesystems
-    tokio::time::sleep(Duration::from_secs(2)).await;
-    Ok(format!("Mock format: {} as {} (not yet implemented)", device.name, options.filesystem_type))
+    match filesystem_type.as_str() {
+        "ext4" => {
+            #[cfg(target_os = "windows")]
+            {
+                // Check for WSL2
+                let output = std::process::Command::new("wsl")
+                    .arg("--list")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("WSL2 (Windows Subsystem for Linux)".to_string());
+                }
+            }
+            
+            #[cfg(target_os = "linux")]
+            {
+                // Check for mkfs.ext4
+                let output = std::process::Command::new("which")
+                    .arg("mkfs.ext4")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("e2fsprogs (mkfs.ext4)".to_string());
+                }
+            }
+        },
+        
+        "ntfs" => {
+            #[cfg(target_os = "linux")]
+            {
+                // Check for mkfs.ntfs
+                let output = std::process::Command::new("which")
+                    .arg("mkfs.ntfs")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("ntfs-3g (mkfs.ntfs)".to_string());
+                }
+            }
+            
+            #[cfg(target_os = "macos")]
+            {
+                // Check for ntfs-3g via Homebrew
+                let output = std::process::Command::new("which")
+                    .arg("mkfs.ntfs")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("ntfs-3g-mac (install with: brew install ntfs-3g-mac)".to_string());
+                }
+            }
+        },
+        
+        "fat32" => {
+            #[cfg(target_os = "linux")]
+            {
+                // Check for mkfs.fat
+                let output = std::process::Command::new("which")
+                    .arg("mkfs.fat")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("dosfstools (mkfs.fat)".to_string());
+                }
+            }
+        },
+        
+        "exfat" => {
+            #[cfg(target_os = "linux")]
+            {
+                // Check for mkfs.exfat
+                let output = std::process::Command::new("which")
+                    .arg("mkfs.exfat")
+                    .output();
+                
+                if output.is_err() || !output.unwrap().status.success() {
+                    missing_tools.push("exfatprogs or exfat-utils (mkfs.exfat)".to_string());
+                }
+            }
+        },
+        
+        _ => {}
+    }
+    
+    Ok(missing_tools)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -146,7 +339,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             enumerate_devices,
             simulate_format,
-            execute_format
+            execute_format,
+            check_formatter_requirements
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Moses Drive Formatter - UI Preview</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+
+        .preview-info {
+            background: #48bb78;
+            color: white;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+        }
+
+        /* Toast Demo */
+        .toast-demo {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 1000;
+        }
+
+        .toast {
+            display: flex;
+            align-items: center;
+            background: white;
+            border-radius: 8px;
+            padding: 12px 16px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            min-width: 300px;
+            margin-bottom: 10px;
+            border-left: 4px solid #48bb78;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 3rem;
+        }
+
+        header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+        }
+
+        .subtitle {
+            font-size: 1.1rem;
+            opacity: 0.95;
+        }
+
+        section {
+            background: white;
+            border-radius: 12px;
+            padding: 2rem;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        h2 {
+            color: #667eea;
+            margin-bottom: 1.5rem;
+        }
+
+        /* Device cards */
+        .device-card {
+            display: flex;
+            align-items: center;
+            padding: 1rem;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            cursor: pointer;
+            margin-bottom: 1rem;
+            transition: all 0.3s ease;
+        }
+
+        .device-card.selected {
+            border-color: #667eea;
+            background: linear-gradient(to right, #f7f9ff, #fff);
+        }
+
+        .device-icon {
+            font-size: 2rem;
+            margin-right: 1rem;
+        }
+
+        .device-info {
+            flex: 1;
+        }
+
+        .warning-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: #fff5f5;
+            color: #c53030;
+            border: 1px solid #feb2b2;
+            margin-top: 0.5rem;
+        }
+
+        .info-badge {
+            display: inline-flex;
+            align-items: center;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: #ebf8ff;
+            color: #2b6cb0;
+            border: 1px solid #90cdf4;
+            margin-top: 0.5rem;
+            margin-left: 0.5rem;
+        }
+
+        /* Progress bar */
+        .progress-bar {
+            width: 100%;
+            height: 30px;
+            background: #e2e8f0;
+            border-radius: 15px;
+            overflow: hidden;
+            margin: 2rem 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #667eea, #764ba2);
+            width: 65%;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .progress-fill::after {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(
+                90deg,
+                transparent,
+                rgba(255, 255, 255, 0.3),
+                transparent
+            );
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { transform: translateX(-100%); }
+            100% { transform: translateX(100%); }
+        }
+
+        .progress-text {
+            text-align: center;
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+            margin-top: 0.5rem;
+        }
+
+        /* Forms */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            color: #4a5568;
+        }
+
+        select, input {
+            width: 100%;
+            padding: 0.75rem;
+            border: 2px solid #e2e8f0;
+            border-radius: 6px;
+            font-size: 1rem;
+        }
+
+        /* Buttons */
+        .btn-primary, .btn-danger {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 6px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            margin-right: 1rem;
+        }
+
+        .btn-primary {
+            background: #667eea;
+            color: white;
+        }
+
+        .btn-danger {
+            background: #f56565;
+            color: white;
+        }
+
+        /* Spinner */
+        .spinner {
+            width: 14px;
+            height: 14px;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            border-top-color: transparent;
+            animation: spin 0.6s linear infinite;
+            display: inline-block;
+            margin-right: 8px;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .dots {
+            text-align: center;
+            margin: 2rem 0;
+        }
+
+        .dot {
+            width: 10px;
+            height: 10px;
+            background: #667eea;
+            border-radius: 50%;
+            display: inline-block;
+            margin: 0 5px;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes bounce {
+            0%, 80%, 100% { transform: scale(0); }
+            40% { transform: scale(1); }
+        }
+
+        .warning-list {
+            list-style: none;
+            padding: 0;
+        }
+
+        .warning-list li {
+            padding: 0.5rem;
+            margin-bottom: 0.5rem;
+            background: #fffaf0;
+            border-left: 3px solid #ed8936;
+            border-radius: 4px;
+            font-size: 0.9rem;
+        }
+    </style>
+</head>
+<body>
+    <div class="preview-info">
+        📸 This is a static HTML preview of the Moses GUI - Open this file in a browser to see the interface
+    </div>
+
+    <!-- Toast notifications demo -->
+    <div class="toast-demo">
+        <div class="toast">
+            <span style="font-size: 1.2rem; margin-right: 12px;">✅</span>
+            <span style="flex: 1;">Found 3 drives</span>
+        </div>
+    </div>
+
+    <div class="container">
+        <header>
+            <h1>Moses Drive Formatter</h1>
+            <p class="subtitle">Cross-platform drive formatting made easy</p>
+        </header>
+
+        <!-- Device Selection -->
+        <section>
+            <h2>Select Drive</h2>
+            
+            <div class="device-card">
+                <div class="device-icon">💾</div>
+                <div class="device-info">
+                    <h3>System Drive (C:)</h3>
+                    <p style="color: #666; font-size: 0.9rem;">SSD - 500.00 GB</p>
+                    <div class="warning-badge">
+                        <span style="margin-right: 0.25rem;">⚠️</span> System Drive
+                    </div>
+                </div>
+            </div>
+
+            <div class="device-card selected">
+                <div class="device-icon">🔌</div>
+                <div class="device-info">
+                    <h3>Kingston DataTraveler 3.0</h3>
+                    <p style="color: #666; font-size: 0.9rem;">USB - 57.66 GB</p>
+                    <div class="info-badge">
+                        <span style="margin-right: 0.25rem;">🔌</span> Removable
+                    </div>
+                </div>
+                <div style="position: absolute; right: 1rem; width: 30px; height: 30px; background: #667eea; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold;">
+                    ✓
+                </div>
+            </div>
+
+            <div class="device-card">
+                <div class="device-icon">🗂️</div>
+                <div class="device-info">
+                    <h3>SD Card</h3>
+                    <p style="color: #666; font-size: 0.9rem;">SDCard - 32.00 GB</p>
+                    <div class="info-badge">
+                        <span style="margin-right: 0.25rem;">🔌</span> Removable
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- Format Options -->
+        <section>
+            <h2>Format Options</h2>
+            
+            <div class="form-group">
+                <label>Filesystem Type</label>
+                <select>
+                    <option>exFAT - Universal (No limits)</option>
+                    <option>NTFS - Windows Native</option>
+                    <option>FAT32 - Universal (4GB limit)</option>
+                    <option>EXT4 - Linux Native</option>
+                </select>
+            </div>
+
+            <div class="form-group">
+                <label>Volume Label (Optional)</label>
+                <input type="text" placeholder="Enter volume label" value="MY_DRIVE">
+                <small style="display: block; margin-top: 0.25rem; font-size: 0.85rem; color: #718096;">
+                    Max 15 characters
+                </small>
+            </div>
+
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" checked style="width: auto; margin-right: 0.5rem;">
+                    Quick Format
+                    <small style="display: block; margin-left: 1.5rem; color: #718096;">Faster but less thorough</small>
+                </label>
+            </div>
+
+            <div style="margin-top: 2rem;">
+                <button class="btn-primary">Dry Run (Simulate)</button>
+                <button class="btn-danger">
+                    <span class="spinner"></span>
+                    Formatting...
+                </button>
+            </div>
+        </section>
+
+        <!-- Progress Section -->
+        <section>
+            <h2 style="text-align: center;">Formatting in Progress</h2>
+            
+            <div class="progress-bar">
+                <div class="progress-fill"></div>
+            </div>
+            <div class="progress-text">65%</div>
+            
+            <p style="text-align: center; color: #4a5568; margin: 1rem 0; font-size: 1.1rem;">
+                Writing filesystem structures...
+            </p>
+            
+            <div class="dots">
+                <span class="dot"></span>
+                <span class="dot"></span>
+                <span class="dot"></span>
+            </div>
+            
+            <div style="color: #e53e3e; font-weight: 500; padding: 1rem; background: #fff5f5; border-radius: 6px; border: 1px solid #feb2b2; text-align: center;">
+                ⚠️ Do not disconnect the drive or close this application
+            </div>
+        </section>
+
+        <!-- Simulation Report -->
+        <section>
+            <h2>Simulation Report</h2>
+            
+            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: #f7fafc; border-radius: 6px; margin-bottom: 0.75rem;">
+                <span style="font-weight: 500;">⏱️ Estimated Time:</span>
+                <span>5 seconds</span>
+            </div>
+            
+            <div style="display: flex; justify-content: space-between; padding: 0.75rem; background: #f7fafc; border-radius: 6px; margin-bottom: 0.75rem;">
+                <span style="font-weight: 500;">💾 Available Space:</span>
+                <span>57.08 GB</span>
+            </div>
+            
+            <div style="margin-top: 1.5rem;">
+                <h3 style="color: #e53e3e; font-size: 1rem; margin-bottom: 0.75rem;">⚠️ Important Information</h3>
+                <ul class="warning-list">
+                    <li>exFAT advantages:</li>
+                    <li>• No 4GB file size limit (unlike FAT32)</li>
+                    <li>• Supports drives larger than 32GB on all platforms</li>
+                    <li>• Better performance than FAT32 for large files</li>
+                    <li>• Wide compatibility (Windows, macOS, Linux, cameras, etc.)</li>
+                    <li>All data on this device will be permanently erased</li>
+                </ul>
+            </div>
+        </section>
+    </div>
+</body>
+</html>

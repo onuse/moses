@@ -7,7 +7,7 @@ pub struct ExFatFormatter;
 impl ExFatFormatter {
     #[cfg(target_os = "windows")]
     async fn format_windows(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
-        // Get drive letter
+        // Try to get drive letter for mounted drives
         let drive_letter = device.mount_points.first()
             .and_then(|p| p.to_str())
             .and_then(|s| {
@@ -19,6 +19,7 @@ impl ExFatFormatter {
             });
 
         if let Some(letter) = drive_letter {
+            // Use format.com for mounted drives
             println!("Formatting drive {}: as exFAT", letter);
             
             let mut cmd_args = vec![
@@ -31,7 +32,9 @@ impl ExFatFormatter {
             }
             
             if let Some(ref label) = options.label {
-                cmd_args.push(format!("/V:{}", label));
+                // exFAT supports up to 15 characters
+                let truncated_label: String = label.chars().take(15).collect();
+                cmd_args.push(format!("/V:{}", truncated_label));
             }
             
             cmd_args.push(format!("{}:", letter));
@@ -49,92 +52,105 @@ impl ExFatFormatter {
             Ok(())
         } else {
             // Use diskpart for unmounted drives
-            self.format_unmounted_windows(device, options).await
+            let disk_number = device.id
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .collect::<String>()
+                .parse::<u32>()
+                .map_err(|_| MosesError::Other("Invalid device ID".to_string()))?;
+            
+            // Build diskpart script
+            let mut script = format!("select disk {}\n", disk_number);
+            script.push_str("clean\n");
+            script.push_str("create partition primary\n");
+            script.push_str("format fs=exfat ");
+            
+            if let Some(label) = &options.label {
+                let truncated_label: String = label.chars().take(15).collect();
+                script.push_str(&format!("label=\"{}\" ", truncated_label));
+            }
+            
+            if options.quick_format {
+                script.push_str("quick ");
+            }
+            
+            script.push_str("\nassign\n");
+            script.push_str("exit\n");
+            
+            // Write script to temp file
+            let temp_script = std::env::temp_dir().join("moses_exfat_format.txt");
+            std::fs::write(&temp_script, script)
+                .map_err(|e| MosesError::IoError(e))?;
+            
+            // Execute diskpart with the script
+            let output = Command::new("diskpart")
+                .arg("/s")
+                .arg(&temp_script)
+                .output()
+                .map_err(|e| MosesError::Other(format!("Failed to run diskpart: {}", e)))?;
+            
+            // Clean up temp file
+            let _ = std::fs::remove_file(&temp_script);
+            
+            if !output.status.success() {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(MosesError::FormatError(format!("exFAT format failed: {}", stderr)));
+            }
+            
+            Ok(())
         }
-    }
-    
-    #[allow(dead_code)]
-    async fn format_unmounted_windows(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
-        let disk_number = device.id
-            .trim_start_matches("\\\\.\\PHYSICALDRIVE")
-            .parse::<u32>()
-            .map_err(|_| MosesError::Other(format!("Invalid device path: {}", device.id)))?;
-        
-        let mut script = format!(
-            "select disk {}\n\
-             clean\n\
-             create partition primary\n\
-             select partition 1\n",
-            disk_number
-        );
-        
-        if options.quick_format {
-            script.push_str("format fs=exfat quick");
-        } else {
-            script.push_str("format fs=exfat");
-        }
-        
-        if let Some(ref label) = options.label {
-            script.push_str(&format!(" label=\"{}\"", label));
-        }
-        
-        script.push_str("\nassign\nexit\n");
-        
-        let temp_script = std::env::temp_dir().join("moses_exfat_diskpart.txt");
-        std::fs::write(&temp_script, script)
-            .map_err(|e| MosesError::Other(format!("Failed to write diskpart script: {}", e)))?;
-        
-        let output = Command::new("diskpart")
-            .arg("/s")
-            .arg(&temp_script)
-            .output()
-            .map_err(|e| MosesError::Other(format!("Failed to execute diskpart: {}", e)))?;
-        
-        let _ = std::fs::remove_file(temp_script);
-        
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            return Err(MosesError::FormatError(
-                format!("Diskpart failed:\nStdout: {}\nStderr: {}", stdout, stderr)
-            ));
-        }
-        
-        Ok(())
     }
     
     #[cfg(target_os = "linux")]
     async fn format_linux(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
-        // Linux uses mkfs.exfat or mkexfatfs
-        let mut cmd_args = vec![];
+        // Check which exFAT tool is available
+        let mkfs_exfat_check = Command::new("which")
+            .arg("mkfs.exfat")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
         
-        if let Some(ref label) = options.label {
-            cmd_args.push("-n".to_string());
-            cmd_args.push(label.clone());
+        let mkexfatfs_check = Command::new("which")
+            .arg("mkexfatfs")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false);
+        
+        if !mkfs_exfat_check && !mkexfatfs_check {
+            return Err(MosesError::ExternalToolMissing(
+                "Neither mkfs.exfat nor mkexfatfs found. Install exfatprogs or exfat-utils package".to_string()
+            ));
         }
         
-        cmd_args.push(device.id.clone());
-        
-        // Try mkfs.exfat first, then mkexfatfs
-        let result = Command::new("mkfs.exfat")
-            .args(&cmd_args)
-            .output();
-        
-        let output = match result {
-            Ok(out) => out,
-            Err(_) => {
-                // Fallback to mkexfatfs
-                Command::new("mkexfatfs")
-                    .args(&cmd_args)
-                    .output()
-                    .map_err(|e| MosesError::Other(
-                        format!("Neither mkfs.exfat nor mkexfatfs found. Install exfat-utils: {}", e)
-                    ))?
-            }
+        // Prefer mkfs.exfat (newer tool from exfatprogs)
+        let tool = if mkfs_exfat_check {
+            "mkfs.exfat"
+        } else {
+            "mkexfatfs"
         };
+        
+        let mut cmd = Command::new(tool);
+        
+        // Add label if provided
+        if let Some(ref label) = options.label {
+            cmd.arg("-n");
+            cmd.arg(label);
+        }
+        
+        // Add device path
+        cmd.arg(&device.id);
+        
+        // Execute the format command
+        let output = cmd.output()
+            .map_err(|e| MosesError::Other(format!("Failed to run {}: {}", tool, e)))?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            if stderr.contains("Permission denied") {
+                return Err(MosesError::InsufficientPrivileges(
+                    "Root privileges required. Try running with sudo".to_string()
+                ));
+            }
             return Err(MosesError::FormatError(format!("exFAT format failed: {}", stderr)));
         }
         
@@ -143,20 +159,34 @@ impl ExFatFormatter {
     
     #[cfg(target_os = "macos")]
     async fn format_macos(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
-        let cmd_args = vec![
-            "eraseDisk",
-            "ExFAT",
-            options.label.as_deref().unwrap_or("Untitled"),
-            &device.id,
-        ];
+        // macOS uses diskutil for formatting
+        let mut cmd = Command::new("diskutil");
         
-        let output = Command::new("diskutil")
-            .args(&cmd_args)
-            .output()
+        cmd.arg("eraseDisk");
+        cmd.arg("ExFAT");
+        
+        // Volume name
+        let label = options.label.as_deref()
+            .map(|l| l.chars().take(15).collect::<String>())
+            .unwrap_or_else(|| "Untitled".to_string());
+        cmd.arg(label);
+        
+        // Device identifier
+        cmd.arg(&device.id);
+        
+        let output = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to execute diskutil: {}", e)))?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            
+            if stderr.contains("requires root") || stdout.contains("requires root") {
+                return Err(MosesError::InsufficientPrivileges(
+                    "Root privileges required. Try running with sudo".to_string()
+                ));
+            }
+            
             return Err(MosesError::FormatError(format!("diskutil failed: {}", stderr)));
         }
         
@@ -175,7 +205,7 @@ impl FilesystemFormatter for ExFatFormatter {
     }
     
     fn can_format(&self, device: &Device) -> bool {
-        // exFAT supports very large drives (up to 128 PB theoretical)
+        // Never format system drives
         if device.is_system {
             return false;
         }
@@ -186,25 +216,32 @@ impl FilesystemFormatter for ExFatFormatter {
             if mount_str == "/" || 
                mount_str == "c:\\" || 
                mount_str.starts_with("/boot") ||
+               mount_str.starts_with("/system") ||
                mount_str.starts_with("c:\\windows") ||
                mount_str.starts_with("c:\\program") {
                 return false;
             }
         }
         
+        // exFAT supports very large drives (up to 128 PB theoretical, 512 TB recommended)
+        // No practical size limitations for normal use
         true
     }
     
     fn requires_external_tools(&self) -> bool {
-        cfg!(target_os = "linux") // Linux may need exfat-utils
+        #[cfg(target_os = "linux")]
+        return true; // Requires exfatprogs or exfat-utils
+        
+        #[cfg(not(target_os = "linux"))]
+        return false;
     }
     
     fn bundled_tools(&self) -> Vec<&'static str> {
-        if cfg!(target_os = "linux") {
-            vec!["mkfs.exfat", "exfat-utils"]
-        } else {
-            vec![]
-        }
+        #[cfg(target_os = "linux")]
+        return vec!["exfatprogs", "exfat-utils"];
+        
+        #[cfg(not(target_os = "linux"))]
+        return vec![];
     }
     
     async fn format(
@@ -212,38 +249,55 @@ impl FilesystemFormatter for ExFatFormatter {
         device: &Device,
         options: &FormatOptions,
     ) -> Result<(), MosesError> {
-        if device.is_system {
-            return Err(MosesError::Other("Cannot format system drive".to_string()));
+        // Safety check
+        if !self.can_format(device) {
+            return Err(MosesError::UnsafeDevice(
+                "Cannot format this device - it may be a system drive or have critical mount points".to_string()
+            ));
         }
+        
+        // Validate options
+        self.validate_options(options).await?;
         
         println!("Formatting {} as exFAT...", device.name);
         
+        // Platform-specific formatting
         #[cfg(target_os = "windows")]
-        return self.format_windows(device, options).await;
+        {
+            self.format_windows(device, options).await
+        }
         
         #[cfg(target_os = "linux")]
-        return self.format_linux(device, options).await;
+        {
+            self.format_linux(device, options).await
+        }
         
         #[cfg(target_os = "macos")]
-        return self.format_macos(device, options).await;
+        {
+            self.format_macos(device, options).await
+        }
         
         #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
-        Err(MosesError::PlatformNotSupported("exFAT formatting not supported on this platform".to_string()))
+        {
+            Err(MosesError::PlatformNotSupported("exFAT formatting not supported on this platform".to_string()))
+        }
     }
     
     async fn validate_options(&self, options: &FormatOptions) -> Result<(), MosesError> {
-        // exFAT label validation
+        // exFAT label validation - supports Unicode, max 15 characters
         if let Some(ref label) = options.label {
             if label.len() > 15 {
-                return Err(MosesError::Other(
-                    "exFAT label must be 15 characters or less".to_string()
-                ));
+                // We'll truncate it rather than error
+                println!("Warning: exFAT label will be truncated to 15 characters");
             }
+            
+            // exFAT supports most Unicode characters in labels
+            // No need for strict validation like FAT32
         }
         
         // exFAT doesn't support built-in compression
         if options.enable_compression {
-            return Err(MosesError::Other(
+            return Err(MosesError::InvalidInput(
                 "exFAT does not support compression".to_string()
             ));
         }
@@ -262,31 +316,58 @@ impl FilesystemFormatter for ExFatFormatter {
             warnings.push("WARNING: This is a system drive!".to_string());
         }
         
-        warnings.push(format!("Will format {} as exFAT", device.name));
-        warnings.push("exFAT is ideal for large files and cross-platform compatibility".to_string());
-        warnings.push("No file size limitations (unlike FAT32's 4GB limit)".to_string());
+        if !device.mount_points.is_empty() {
+            warnings.push(format!("Device is currently mounted at: {:?}", device.mount_points));
+        }
         
+        if !device.is_removable {
+            warnings.push("This is a non-removable drive - ensure you have backups".to_string());
+        }
+        
+        // exFAT advantages
+        warnings.push("exFAT advantages:".to_string());
+        warnings.push("• No 4GB file size limit (unlike FAT32)".to_string());
+        warnings.push("• Supports drives larger than 32GB on all platforms".to_string());
+        warnings.push("• Better performance than FAT32 for large files".to_string());
+        warnings.push("• Wide compatibility (Windows, macOS, Linux, cameras, etc.)".to_string());
+        
+        // Platform-specific warnings
         #[cfg(target_os = "linux")]
         {
-            warnings.push("Note: Ensure exfat-utils is installed on Linux".to_string());
+            warnings.push("Note: Linux requires exfatprogs or exfat-utils package".to_string());
         }
+        
+        #[cfg(target_os = "windows")]
+        {
+            if cfg!(target_arch = "x86") {
+                warnings.push("Note: Windows 7 and older may need exFAT update from Microsoft".to_string());
+            }
+        }
+        
+        if let Some(ref label) = options.label {
+            if label.len() > 15 {
+                warnings.push(format!("Label will be truncated to: {}", 
+                    label.chars().take(15).collect::<String>()));
+            }
+        }
+        
+        warnings.push("All data on this device will be permanently erased".to_string());
+        
+        // Estimate formatting time based on device size and quick format option
+        let estimated_seconds = if options.quick_format {
+            5 + (device.size / (100 * 1_073_741_824)) // Quick format: ~5s + 1s per 100GB
+        } else {
+            30 + (device.size / (10 * 1_073_741_824)) // Full format: ~30s + 1s per 10GB
+        };
         
         Ok(SimulationReport {
             device: device.clone(),
             options: options.clone(),
-            estimated_time: if options.quick_format {
-                Duration::from_secs(5)
-            } else {
-                Duration::from_secs(30)
-            },
+            estimated_time: Duration::from_secs(estimated_seconds),
             warnings,
-            required_tools: if cfg!(target_os = "linux") {
-                vec!["mkfs.exfat or mkexfatfs".to_string()]
-            } else {
-                vec![]
-            },
+            required_tools: self.bundled_tools().into_iter().map(String::from).collect(),
             will_erase_data: true,
-            space_after_format: device.size * 99 / 100, // exFAT has minimal overhead
+            space_after_format: device.size * 99 / 100, // exFAT has minimal overhead ~1%
         })
     }
 }

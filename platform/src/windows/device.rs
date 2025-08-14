@@ -1,4 +1,5 @@
 use moses_core::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, Partition, PermissionLevel};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
@@ -12,6 +13,7 @@ struct WindowsDisk {
     #[serde(rename = "Size")]
     size: u64,
     #[serde(rename = "PartitionStyle")]
+    #[allow(dead_code)]
     partition_style: Option<String>,
     #[serde(rename = "BusType")]
     bus_type: Option<String>,
@@ -26,6 +28,7 @@ struct WindowsDisk {
 #[derive(Debug, Deserialize, Serialize)]
 struct WindowsPartition {
     #[serde(rename = "DiskNumber")]
+    #[allow(dead_code)]
     disk_number: u32,
     #[serde(rename = "PartitionNumber")]
     partition_number: u32,
@@ -203,7 +206,7 @@ impl WindowsDeviceManager {
     }
 }
 
-#[async_trait::async_trait]
+#[async_trait]
 impl DeviceManager for WindowsDeviceManager {
     async fn enumerate_devices(&self) -> Result<Vec<Device>, MosesError> {
         // Get disk info from PowerShell
