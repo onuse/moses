@@ -36,7 +36,7 @@ pub struct SimulationReport {
     pub space_after_format: u64,
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum Platform {
     Windows,
     MacOS,

@@ -58,8 +58,9 @@ impl Fat32Formatter {
     async fn format_linux(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
         let mut cmd_args = vec!["-F", "32"]; // FAT32
         
+        let truncated_label;
         if let Some(ref label) = options.label {
-            let truncated_label: String = label.chars().take(11).collect();
+            truncated_label = label.chars().take(11).collect::<String>();
             cmd_args.push("-n");
             cmd_args.push(&truncated_label);
         }

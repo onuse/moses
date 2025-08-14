@@ -1,7 +1,6 @@
 /// Test utilities and mock implementations for safe testing
-use crate::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, Partition, PermissionLevel};
+use crate::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, PermissionLevel};
 use crate::{FilesystemFormatter, FormatOptions, SimulationReport};
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

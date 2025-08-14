@@ -117,12 +117,12 @@ impl FilesystemFormatter for Commodore1541Formatter {
         // Add disk ID (2 characters)
         cmd.arg("-i").arg("MD");
         
-        // Output file (device path)
-        cmd.arg(&device.path);
+        // Output file (device id)
+        cmd.arg(&device.id);
         
         // Execute format command
         let output = cmd.output().await
-            .map_err(|e| MosesError::Io(e))?;
+            .map_err(|e| MosesError::IoError(e))?;
         
         if !output.status.success() {
             let stderr = String::from_utf8_lossy(&output.stderr);
@@ -220,6 +220,26 @@ pub fn register_c64_formatter(registry: &mut FormatterRegistry) -> Result<(), Mo
         Arc::new(Commodore1541Formatter::new()),
         create_c64_metadata(),
     )
+}
+
+/// Example main function demonstrating how to use the Commodore 1541 formatter
+fn main() {
+    println!("Commodore 1541 Formatter Example");
+    println!("=================================");
+    println!();
+    println!("This example demonstrates how to create a formatter plugin");
+    println!("for historical filesystems like the Commodore 1541.");
+    println!();
+    println!("To use this formatter:");
+    println!("1. Register it with the FormatterRegistry");
+    println!("2. Use it like any other formatter");
+    println!();
+    println!("Example code:");
+    println!("```rust");
+    println!("let mut registry = FormatterRegistry::new();");
+    println!("register_c64_formatter(&mut registry).unwrap();");
+    println!("let formatter = registry.get_formatter(\"c64-1541\").unwrap();");
+    println!("```");
 }
 
 #[cfg(test)]

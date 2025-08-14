@@ -10,7 +10,7 @@ mod safety_tests {
     /// Helper to create a system drive that should NEVER be formatted
     fn create_system_drive() -> Device {
         Device {
-            id: "\\\\.\\\PHYSICALDRIVE0".to_string(),
+            id: r"\\.\PHYSICALDRIVE0".to_string(),
             name: "System Drive".to_string(),
             size: 500 * 1_073_741_824,
             device_type: DeviceType::SSD,
@@ -23,7 +23,7 @@ mod safety_tests {
     /// Helper to create a safe USB drive
     fn create_safe_usb() -> Device {
         Device {
-            id: "\\\\.\\\PHYSICALDRIVE2".to_string(),
+            id: r"\\.\PHYSICALDRIVE2".to_string(),
             name: "USB Drive".to_string(),
             size: 16 * 1_073_741_824,
             device_type: DeviceType::USB,

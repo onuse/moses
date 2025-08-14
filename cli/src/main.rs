@@ -187,7 +187,7 @@ async fn main() -> anyhow::Result<()> {
                     }
                 };
                 
-                let formatters = registry.list_by_category(cat);
+                let formatters = registry.list_by_category(cat.clone());
                 if formatters.is_empty() {
                     println!("No formatters found in category: {:?}", cat);
                 } else {
@@ -233,7 +233,6 @@ async fn main() -> anyhow::Result<()> {
                 eprintln!("Formatter '{}' not found.", name);
                 eprintln!("Use 'moses list-formats' to see available formatters.");
             }
-        }
         }
     }
     

@@ -13,8 +13,9 @@ impl FilesystemFormatter for NtfsFormatter {
         vec![Platform::Windows, Platform::Linux, Platform::MacOS]
     }
     
-    fn can_format(&self, _device: &Device) -> bool {
-        true
+    fn can_format(&self, device: &Device) -> bool {
+        // Never format system drives
+        !device.is_system
     }
     
     fn requires_external_tools(&self) -> bool {

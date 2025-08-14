@@ -51,13 +51,17 @@ impl FormatterRegistry {
     
     /// Get a formatter by name or alias
     pub fn get_formatter(&self, name: &str) -> Option<Arc<dyn FilesystemFormatter>> {
-        let canonical_name = self.aliases.get(name).unwrap_or(&name.to_string());
+        let canonical_name = self.aliases.get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
         self.formatters.get(canonical_name).cloned()
     }
     
     /// Get metadata for a formatter
     pub fn get_metadata(&self, name: &str) -> Option<&FormatterMetadata> {
-        let canonical_name = self.aliases.get(name).unwrap_or(&name.to_string());
+        let canonical_name = self.aliases.get(name)
+            .map(|s| s.as_str())
+            .unwrap_or(name);
         self.metadata.get(canonical_name)
     }
     
@@ -85,7 +89,9 @@ impl FormatterRegistry {
     
     /// Check if a formatter is supported
     pub fn is_supported(&self, filesystem: &str) -> bool {
-        let canonical_name = self.aliases.get(filesystem).unwrap_or(&filesystem.to_string());
+        let canonical_name = self.aliases.get(filesystem)
+            .map(|s| s.as_str())
+            .unwrap_or(filesystem);
         self.formatters.contains_key(canonical_name)
     }
     
@@ -120,6 +126,7 @@ pub struct FormatterMetadata {
     pub category: FormatterCategory,
     pub min_size: Option<u64>,
     pub max_size: Option<u64>,
+    pub platform_support: Vec<Platform>,
     pub required_tools: Vec<String>,
     pub documentation_url: Option<String>,
     pub version: String,
@@ -136,6 +143,7 @@ impl Default for FormatterMetadata {
             category: FormatterCategory::Modern,
             min_size: None,
             max_size: None,
+            platform_support: Vec::new(),
             required_tools: Vec::new(),
             documentation_url: None,
             version: "1.0.0".to_string(),
@@ -203,6 +211,11 @@ impl FormatterMetadataBuilder {
     pub fn size_range(mut self, min: Option<u64>, max: Option<u64>) -> Self {
         self.metadata.min_size = min;
         self.metadata.max_size = max;
+        self
+    }
+
+    pub fn platforms(mut self, platforms: Vec<Platform>) -> Self {
+        self.metadata.platform_support = platforms;
         self
     }
 

@@ -12,7 +12,7 @@ pub struct Device {
     pub is_system: bool,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum DeviceType {
     HardDisk,
     SSD,

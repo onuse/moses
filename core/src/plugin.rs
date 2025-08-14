@@ -97,7 +97,7 @@ impl ScriptFormatter {
             cmd.output()
         ).await
             .map_err(|_| MosesError::Timeout("Command execution timed out".to_string()))?
-            .map_err(|e| MosesError::Io(e))?;
+            .map_err(|e| MosesError::IoError(e))?;
         
         if output.status.success() {
             Ok(String::from_utf8_lossy(&output.stdout).to_string())
@@ -111,6 +111,38 @@ impl ScriptFormatter {
 
 #[async_trait]
 impl FilesystemFormatter for ScriptFormatter {
+    fn name(&self) -> &'static str {
+        // Return a static reference - this is a limitation of script formatters
+        Box::leak(self.name.clone().into_boxed_str())
+    }
+    
+    fn supported_platforms(&self) -> Vec<crate::Platform> {
+        self.metadata.platform_support.clone()
+    }
+    
+    fn can_format(&self, device: &crate::Device) -> bool {
+        // Check size constraints
+        if let Some(min) = self.metadata.min_size {
+            if device.size < min {
+                return false;
+            }
+        }
+        if let Some(max) = self.metadata.max_size {
+            if device.size > max {
+                return false;
+            }
+        }
+        true
+    }
+    
+    fn requires_external_tools(&self) -> bool {
+        !self.config.required_tools.is_empty()
+    }
+    
+    fn bundled_tools(&self) -> Vec<&'static str> {
+        vec![] // Script formatters don't bundle tools
+    }
+    
     async fn format(&self, device: &crate::Device, options: &crate::FormatOptions) -> Result<(), MosesError> {
         // Check required tools
         for tool in &self.config.required_tools {
@@ -125,17 +157,9 @@ impl FilesystemFormatter for ScriptFormatter {
         Ok(())
     }
     
-    async fn verify(&self, device: &crate::Device) -> Result<bool, MosesError> {
-        if let Some(ref verify_cmd) = self.config.verify_command {
-            let command = verify_cmd.replace("{device}", &device.id);
-            match self.execute_command(&command).await {
-                Ok(_) => Ok(true),
-                Err(_) => Ok(false),
-            }
-        } else {
-            // No verify command, assume success
-            Ok(true)
-        }
+    async fn validate_options(&self, _options: &crate::FormatOptions) -> Result<(), MosesError> {
+        // Basic validation - script formatters typically don't have complex validation
+        Ok(())
     }
     
     async fn dry_run(&self, device: &crate::Device, options: &crate::FormatOptions) -> Result<crate::SimulationReport, MosesError> {
@@ -153,19 +177,16 @@ impl FilesystemFormatter for ScriptFormatter {
         }
         
         Ok(crate::SimulationReport {
+            device: device.clone(),
+            options: options.clone(),
             estimated_time: std::time::Duration::from_secs(30),
-            required_tools: self.config.required_tools.clone(),
             warnings,
-            steps: vec![
-                format!("Check for required tools: {:?}", self.config.required_tools),
-                format!("Execute format command: {}", self.config.format_command),
-            ],
+            required_tools: self.config.required_tools.clone(),
+            will_erase_data: true,
+            space_after_format: device.size * 95 / 100, // Estimate 95% usable
         })
     }
     
-    fn supported_platforms(&self) -> Vec<crate::Platform> {
-        self.metadata.platform_support.clone()
-    }
 }
 
 /// Template for creating new formatter plugins

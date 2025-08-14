@@ -5,7 +5,6 @@ pub mod format;
 pub mod registry;
 pub mod plugin;
 
-#[cfg(test)]
 pub mod test_utils;
 
 pub use device::{Device, DeviceInfo, DeviceManager, DeviceType, PermissionLevel, Partition};

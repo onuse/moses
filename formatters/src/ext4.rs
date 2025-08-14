@@ -13,7 +13,22 @@ impl FilesystemFormatter for Ext4Formatter {
         vec![Platform::Linux, Platform::Windows, Platform::MacOS]
     }
     
-    fn can_format(&self, _device: &Device) -> bool {
+    fn can_format(&self, device: &Device) -> bool {
+        // Never format system drives
+        if device.is_system {
+            return false;
+        }
+        
+        // Never format drives with critical mount points
+        for mount in &device.mount_points {
+            let mount_str = mount.to_string_lossy().to_lowercase();
+            if mount_str == "/" || mount_str == "c:\\" || 
+               mount_str.contains("/boot") || mount_str.contains("/system") ||
+               mount_str.contains("c:\\windows") {
+                return false;
+            }
+        }
+        
         true
     }
     
@@ -49,11 +64,23 @@ impl FilesystemFormatter for Ext4Formatter {
         device: &Device,
         options: &FormatOptions,
     ) -> Result<SimulationReport, MosesError> {
+        let mut warnings = vec![];
+        
+        // Warn about system drives
+        if device.is_system {
+            warnings.push("WARNING: This is a system drive! Formatting will destroy the operating system!".to_string());
+        }
+        
+        // Warn about mounted drives
+        if !device.mount_points.is_empty() {
+            warnings.push(format!("WARNING: Drive is mounted at: {:?}", device.mount_points));
+        }
+        
         Ok(SimulationReport {
             device: device.clone(),
             options: options.clone(),
             estimated_time: Duration::from_secs(60),
-            warnings: vec![],
+            warnings,
             required_tools: self.bundled_tools().into_iter().map(String::from).collect(),
             will_erase_data: true,
             space_after_format: device.size * 95 / 100,
