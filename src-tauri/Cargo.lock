@@ -2039,6 +2039,7 @@ dependencies = [
  "moses-core",
  "nix",
  "serde",
+ "serde_json",
  "windows 0.52.0",
 ]
 

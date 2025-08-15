@@ -11,6 +11,9 @@ pub mod ext4_linux;
 #[cfg(target_os = "windows")]
 pub mod ext4_windows;
 
+// New native ext4 implementation
+pub mod ext4_native;
+
 #[cfg(target_os = "windows")]
 pub mod ntfs_windows;
 

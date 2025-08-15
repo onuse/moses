@@ -4,6 +4,9 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use std::process::Command;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
 #[derive(Debug, Deserialize, Serialize)]
 struct WindowsDisk {
     #[serde(rename = "Number")]
@@ -25,7 +28,7 @@ struct WindowsDisk {
     is_boot: bool,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 struct WindowsPartition {
     #[serde(rename = "DiskNumber")]
     #[allow(dead_code)]
@@ -111,7 +114,15 @@ impl WindowsDeviceManager {
     }
     
     async fn get_disks_powershell(&self) -> Result<Vec<WindowsDisk>, MosesError> {
-        let output = Command::new("powershell.exe")
+        let mut cmd = Command::new("powershell.exe");
+        
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        
+        let output = cmd
             .args(&[
                 "-NoProfile",
                 "-Command",
@@ -139,7 +150,15 @@ impl WindowsDeviceManager {
     }
     
     async fn get_wmi_disk_drives(&self) -> Result<Vec<WmiDiskDrive>, MosesError> {
-        let output = Command::new("powershell.exe")
+        let mut cmd = Command::new("powershell.exe");
+        
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        
+        let output = cmd
             .args(&[
                 "-NoProfile",
                 "-Command",
@@ -166,7 +185,15 @@ impl WindowsDeviceManager {
     }
     
     async fn get_partitions(&self, disk_number: u32) -> Vec<Partition> {
-        let output = Command::new("powershell.exe")
+        let mut cmd = Command::new("powershell.exe");
+        
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        
+        let output = cmd
             .args(&[
                 "-NoProfile",
                 "-Command",
@@ -324,7 +351,15 @@ impl DeviceManager for WindowsDeviceManager {
     
     async fn check_permissions(&self, _device: &Device) -> Result<PermissionLevel, MosesError> {
         // Check if running as Administrator
-        let output = Command::new("powershell.exe")
+        let mut cmd = Command::new("powershell.exe");
+        
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        
+        let output = cmd
             .args(&[
                 "-NoProfile",
                 "-Command",

@@ -9,6 +9,7 @@ license.workspace = true
 moses-core = { path = "../core" }
 async-trait = "0.1"
 serde = { workspace = true }
+serde_json = { workspace = true }
 anyhow = { workspace = true }
 
 [target.'cfg(windows)'.dependencies]

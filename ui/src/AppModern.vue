@@ -248,19 +248,21 @@
             <button 
               class="btn btn-secondary" 
               @click="simulateFormat"
-              :disabled="!formatOptions.filesystem_type || isFormatting"
+              :disabled="!canSimulate"
+              :title="!canSimulate ? 'Select a drive and filesystem type first' : 'Run safety simulation'"
             >
               <span v-if="isSimulating" class="btn-spinner"></span>
-              {{ isSimulating ? 'Simulating...' : 'Run Simulation' }}
+              {{ isSimulating ? 'Simulating...' : 'Run Simulation (Required)' }}
             </button>
             
             <button 
               class="btn btn-primary" 
               @click="executeFormat"
               :disabled="!canFormat"
+              :title="!canFormat ? 'Run simulation first' : 'Format the drive'"
             >
               <span v-if="isFormatting" class="btn-spinner"></span>
-              {{ isFormatting ? 'Formatting...' : 'Format Drive' }}
+              {{ isFormatting ? 'Formatting...' : simulationReport ? 'Format Drive' : 'Format Drive (Run Simulation First)' }}
             </button>
           </div>
         </div>
@@ -301,8 +303,10 @@ interface Device {
 interface FormatOptions {
   filesystem_type: string
   label: string
+  cluster_size: number | null
   quick_format: boolean
-  create_partition: boolean
+  enable_compression: boolean
+  additional_options: Record<string, string>
 }
 
 interface SimulationReport {
@@ -330,8 +334,10 @@ const currentOperation = ref('')
 const formatOptions = ref<FormatOptions>({
   filesystem_type: '',
   label: '',
+  cluster_size: null,
   quick_format: true,
-  create_partition: true
+  enable_compression: false,
+  additional_options: {}
 })
 
 // Computed
@@ -452,18 +458,31 @@ const refreshDevices = async () => {
 }
 
 const simulateFormat = async () => {
-  if (!selectedDevice.value || !formatOptions.value.filesystem_type) return
+  if (!selectedDevice.value || !formatOptions.value.filesystem_type) {
+    alert('Please select a drive and filesystem type first')
+    return
+  }
   
   isSimulating.value = true
+  simulationReport.value = null // Reset previous simulation
   
   try {
+    // Prepare options with proper null handling for label
+    const options = {
+      ...formatOptions.value,
+      label: formatOptions.value.label?.trim() || null
+    }
+    console.log('Starting simulation for:', selectedDevice.value.name, options)
     simulationReport.value = await invoke('simulate_format', {
       device: selectedDevice.value,
-      options: formatOptions.value
+      options: options
     })
+    console.log('Simulation successful:', simulationReport.value)
+    alert('Simulation complete! You can now format the drive.')
   } catch (error) {
     console.error('Simulation failed:', error)
     alert(`Simulation failed: ${error}`)
+    simulationReport.value = null
   } finally {
     isSimulating.value = false
   }

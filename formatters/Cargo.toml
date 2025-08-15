@@ -12,6 +12,13 @@ serde = { workspace = true }
 anyhow = { workspace = true }
 tokio = { workspace = true }
 which = "6.0"
+crc32c = "0.6"
+byteorder = "1.4"
+static_assertions = "1.1"
+hex = "0.4"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+winapi = { version = "0.3", features = ["fileapi", "winnt", "handleapi", "ioapiset"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.27", features = ["user"] }

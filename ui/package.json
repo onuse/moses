@@ -8,12 +8,12 @@
     "preview": "vite preview"
   },
   "devDependencies": {
-    "@vitejs/plugin-react": "^4.3.0",
+    "@vitejs/plugin-vue": "^6.0.1",
     "vite": "^7.1.2"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0",
-    "@tauri-apps/api": "^2.0.0"
+    "react-dom": "^18.2.0"
   }
 }

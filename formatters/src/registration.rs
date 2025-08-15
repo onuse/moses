@@ -5,6 +5,7 @@ use moses_core::{
 use std::sync::Arc;
 
 // Import all our formatters
+#[cfg(not(target_os = "windows"))]
 use crate::ntfs::NtfsFormatter;
 use crate::fat32::Fat32Formatter;
 use crate::exfat::ExFatFormatter;

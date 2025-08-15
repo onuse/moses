@@ -2,15 +2,24 @@ use moses_core::{Device, FilesystemFormatter, FormatOptions, MosesError, Platfor
 use std::process::Command;
 use std::time::Duration;
 
+#[cfg(target_os = "windows")]
+use std::os::windows::process::CommandExt;
+
+#[cfg(target_os = "windows")]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
 pub struct Ext4WindowsFormatter;
 
 impl Ext4WindowsFormatter {
     /// Check if WSL2 is available on the system
     async fn check_wsl2_available(&self) -> bool {
-        match Command::new("wsl")
-            .args(&["--status"])
-            .output()
-        {
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["--status"]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        match cmd.output() {
             Ok(output) => output.status.success(),
             Err(_) => false,
         }
@@ -18,9 +27,13 @@ impl Ext4WindowsFormatter {
     
     /// Check if a WSL distribution is installed
     async fn check_wsl_distro(&self) -> Result<String, MosesError> {
-        let output = Command::new("wsl")
-            .args(&["-l", "-q"])
-            .output()
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["-l", "-q"]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let output = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to list WSL distributions: {}", e)))?;
         
         if !output.status.success() {
@@ -45,51 +58,59 @@ impl Ext4WindowsFormatter {
             .parse::<u32>()
             .map_err(|_| MosesError::Other(format!("Invalid device path: {}", windows_path)))?;
         
-        // Get block devices from WSL
-        let output = Command::new("wsl")
-            .args(&["lsblk", "-d", "-n", "-o", "NAME,SIZE,TYPE,VENDOR,MODEL"])
-            .output()
+        println!("Mapping Windows drive {} to WSL device...", drive_number);
+        
+        // Simple approach: List all block devices in WSL
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["lsblk", "-d", "-n", "-o", "NAME"]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let output = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to list WSL block devices: {}", e)))?;
         
         if !output.status.success() {
-            return Err(MosesError::Other("Failed to enumerate WSL devices".to_string()));
+            // If lsblk fails, try a simpler approach
+            println!("lsblk failed, using fallback device mapping...");
+            
+            // Fallback mapping based on typical configurations:
+            // PhysicalDrive0 = /dev/sda (system)
+            // PhysicalDrive1 = /dev/sdb (system or secondary)
+            // PhysicalDrive2+ = /dev/sdc+ (removable devices)
+            if drive_number >= 2 {
+                let device_letter = (b'a' + drive_number as u8) as char;
+                let wsl_device = format!("/dev/sd{}", device_letter);
+                println!("Using fallback mapping: {} -> {}", windows_path, wsl_device);
+                return Ok(wsl_device);
+            } else {
+                return Err(MosesError::Other("Cannot format system drives".to_string()));
+            }
         }
         
         let devices_output = String::from_utf8_lossy(&output.stdout);
-        
-        // For USB devices, we need to match by size or other characteristics
-        // This is a simplified approach - in production we'd need more robust matching
-        
-        // Try to find removable devices in WSL
-        let output = Command::new("wsl")
-            .args(&["bash", "-c", "ls /dev/sd* | grep -E '/dev/sd[a-z]$' | while read dev; do echo -n \"$dev \"; lsblk -n -o SIZE,TRAN,VENDOR,MODEL $dev 2>/dev/null | head -1; done"])
-            .output()
-            .map_err(|e| MosesError::Other(format!("Failed to enumerate devices in WSL: {}", e)))?;
-        
-        let wsl_devices = String::from_utf8_lossy(&output.stdout);
-        
-        // For now, we'll use a heuristic: map by order for removable devices
-        // PhysicalDrive0 = system, PhysicalDrive1 = system, PhysicalDrive2+ = removable
-        // This matches typical Windows enumeration
-        
-        // Count removable/USB devices in WSL
-        let removable_devices: Vec<&str> = wsl_devices.lines()
-            .filter(|line| line.contains("usb") || line.contains("USB"))
+        let wsl_devices: Vec<&str> = devices_output.lines()
+            .filter(|line| line.starts_with("sd"))
             .collect();
         
+        println!("Found {} devices in WSL: {:?}", wsl_devices.len(), wsl_devices);
+        
+        // Map based on drive index
+        // Typically: sda = Drive0, sdb = Drive1, sdc = Drive2, etc.
+        if (drive_number as usize) < wsl_devices.len() {
+            let device_name = wsl_devices[drive_number as usize];
+            let wsl_device = format!("/dev/{}", device_name);
+            println!("Mapped {} to {}", windows_path, wsl_device);
+            return Ok(wsl_device);
+        }
+        
+        // If we can't find enough devices, use a fallback
+        // This assumes removable drives come after system drives
         if drive_number >= 2 {
-            // Assume drives 2+ are removable
-            let removable_index = (drive_number - 2) as usize;
-            if removable_index < removable_devices.len() {
-                if let Some(device_path) = removable_devices[removable_index].split_whitespace().next() {
-                    return Ok(device_path.to_string());
-                }
-            }
-            
-            // Fallback: try common device paths
-            // Usually removable devices start from /dev/sdc on systems with 2 internal drives
-            let device_letter = (b'c' + (drive_number - 2) as u8) as char;
-            return Ok(format!("/dev/sd{}", device_letter));
+            let device_letter = (b'a' + drive_number as u8) as char;
+            let wsl_device = format!("/dev/sd{}", device_letter);
+            println!("Using fallback mapping: {} -> {}", windows_path, wsl_device);
+            return Ok(wsl_device);
         }
         
         Err(MosesError::Other(format!("Could not map {} to WSL device", windows_path)))
@@ -97,9 +118,13 @@ impl Ext4WindowsFormatter {
     
     /// Unmount device if it's mounted in WSL
     async fn unmount_in_wsl(&self, wsl_device: &str) -> Result<(), MosesError> {
-        let output = Command::new("wsl")
-            .args(&["bash", "-c", &format!("sudo umount {} 2>/dev/null || true", wsl_device)])
-            .output()
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["bash", "-c", &format!("sudo umount {} 2>/dev/null || true", wsl_device)]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let _output = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to unmount device: {}", e)))?;
         
         Ok(())
@@ -112,28 +137,59 @@ impl Ext4WindowsFormatter {
         label: &str,
         quick_format: bool,
     ) -> Result<(), MosesError> {
+        // Check if the device exists in WSL
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["test", "-b", wsl_device]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let device_check = cmd.output()
+            .map_err(|e| MosesError::Other(format!("Failed to check device existence: {}", e)))?;
+        
+        if !device_check.status.success() {
+            println!("Warning: Device {} may not be accessible in WSL", wsl_device);
+            println!("Attempting format anyway...");
+        }
+        
         // First, check if mkfs.ext4 is available in WSL
-        let check = Command::new("wsl")
-            .args(&["which", "mkfs.ext4"])
-            .output()
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["which", "mkfs.ext4"]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let check = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to check for mkfs.ext4: {}", e)))?;
         
         if !check.status.success() {
-            // Try to install e2fsprogs
-            println!("Installing e2fsprogs in WSL...");
-            let install = Command::new("wsl")
-                .args(&["bash", "-c", "sudo apt-get update && sudo apt-get install -y e2fsprogs"])
-                .output()
-                .map_err(|e| MosesError::Other(format!("Failed to install e2fsprogs: {}", e)))?;
+            // mkfs.ext4 is not available
+            println!("mkfs.ext4 not found in WSL");
             
-            if !install.status.success() {
-                return Err(MosesError::Other("Failed to install required tools in WSL".to_string()));
+            // Check if we can use mke2fs as an alternative
+            let mut cmd = Command::new("wsl");
+            cmd.args(&["which", "mke2fs"]);
+            
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            
+            let mke2fs_check = cmd.output()
+                .map_err(|e| MosesError::Other(format!("Failed to check for mke2fs: {}", e)))?;
+            
+            if !mke2fs_check.status.success() {
+                return Err(MosesError::Other(
+                    "ext4 formatting tools not found in WSL. Please install e2fsprogs:\n\
+                    1. Open WSL terminal\n\
+                    2. Run: sudo apt-get update && sudo apt-get install -y e2fsprogs\n\
+                    3. Try formatting again".to_string()
+                ));
             }
+            
+            println!("Using mke2fs as fallback for ext4 formatting");
         }
         
-        // Build mkfs.ext4 command
+        // Build mkfs.ext4 command - try with sudo first
         let mut mkfs_args = vec![
-            "sudo".to_string(),
             "mkfs.ext4".to_string(),
             "-F".to_string(), // Force creation
         ];
@@ -150,16 +206,44 @@ impl Ext4WindowsFormatter {
         
         mkfs_args.push(wsl_device.to_string());
         
-        // Execute format command
+        // Execute format command - first try without sudo
         println!("Formatting {} as EXT4...", wsl_device);
-        let output = Command::new("wsl")
-            .args(&["bash", "-c", &mkfs_args.join(" ")])
-            .output()
+        let mut cmd = Command::new("wsl");
+        cmd.args(&["bash", "-c", &mkfs_args.join(" ")]);
+        
+        #[cfg(target_os = "windows")]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+        
+        let output = cmd.output()
             .map_err(|e| MosesError::Other(format!("Failed to execute mkfs.ext4: {}", e)))?;
         
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(MosesError::Other(format!("mkfs.ext4 failed: {}", stderr)));
+            // Try with sudo if direct execution failed
+            println!("Retrying with sudo privileges...");
+            let sudo_command = format!("sudo -n {}", mkfs_args.join(" "));
+            
+            let mut cmd = Command::new("wsl");
+            cmd.args(&["bash", "-c", &sudo_command]);
+            
+            #[cfg(target_os = "windows")]
+            cmd.creation_flags(CREATE_NO_WINDOW);
+            
+            let sudo_output = cmd.output()
+                .map_err(|e| MosesError::Other(format!("Failed to execute mkfs.ext4 with sudo: {}", e)))?;
+            
+            if !sudo_output.status.success() {
+                let stderr = String::from_utf8_lossy(&sudo_output.stderr);
+                if stderr.contains("password is required") || stderr.contains("sudo:") {
+                    return Err(MosesError::Other(
+                        "Formatting requires sudo privileges. Please configure WSL for passwordless sudo:\n\
+                        1. Open WSL terminal\n\
+                        2. Run: sudo visudo\n\
+                        3. Add at the end: <your-username> ALL=(ALL) NOPASSWD: /sbin/mkfs.ext4\n\
+                        4. Save and try formatting again".to_string()
+                    ));
+                }
+                return Err(MosesError::Other(format!("mkfs.ext4 failed: {}", stderr)));
+            }
         }
         
         println!("Format completed successfully!");
@@ -178,8 +262,8 @@ impl FilesystemFormatter for Ext4WindowsFormatter {
     }
     
     fn can_format(&self, device: &Device) -> bool {
-        // Can format removable devices and non-system drives
-        !device.is_system && device.mount_points.is_empty()
+        // Can format removable devices (even if mounted) and non-system drives
+        !device.is_system && (device.is_removable || device.mount_points.is_empty())
     }
     
     fn requires_external_tools(&self) -> bool {
