@@ -222,6 +222,7 @@ __pycache__/
 venv/
 env/
 
+
 # ========================
 # Allow List (don't ignore these)
 # ========================
@@ -232,6 +233,9 @@ env/
 # Keep documentation
 !docs/
 !docs/**
+
+# Temporary documentation
+reference/*
 
 # Keep scripts
 !scripts/

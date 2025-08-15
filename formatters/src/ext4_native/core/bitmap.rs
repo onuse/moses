@@ -153,25 +153,29 @@ pub fn init_block_bitmap_group0(
     bitmap.set_range(current_block, inode_table_blocks);
     current_block += inode_table_blocks;
     
+    // Mark blocks beyond the filesystem size as used
+    // This is required for proper padding in incomplete block groups
+    if layout.total_blocks < layout.blocks_per_group as u64 {
+        for block in layout.total_blocks as u32..layout.blocks_per_group {
+            bitmap.set(block);
+        }
+    }
+    
     // The rest are free (will allocate for root directory later)
 }
 
 /// Initialize inode bitmap for the first block group
 pub fn init_inode_bitmap_group0(bitmap: &mut Bitmap) {
     // Reserved inodes 1-10
-    for i in 0..EXT4_FIRST_INO {
+    // Mark reserved inodes 1-10 as used
+    // In the bitmap: bit 0 = inode 1, bit 1 = inode 2, ..., bit 9 = inode 10
+    for i in 0..10 {
         bitmap.set(i);
     }
     
-    // Also mark inode 11 as used (first non-reserved inode)
-    // This is required by ext4 even if not actually allocated
-    bitmap.set(EXT4_FIRST_INO);
-    
-    // Root directory inode is actually inode 2, but we mark 0-10 as used
-    // Inode 0 doesn't exist, but we mark it as used
+    // Inode 11 (lost+found) will be marked as used separately in the test
     // The rest are free
 }
-
 #[cfg(test)]
 mod tests {
     use super::*;

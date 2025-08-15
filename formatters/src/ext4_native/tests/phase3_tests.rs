@@ -6,7 +6,8 @@ mod tests {
         structures::{
             Ext4Superblock, Ext4GroupDesc, Ext4Inode, 
             Ext4DirEntry2, Ext4Extent,
-            create_root_directory_block, update_root_inode_extents,
+            create_root_directory_block, create_lost_found_directory_block,
+            update_root_inode_extents,
         },
         types::{FilesystemParams, FilesystemLayout},
         alignment::AlignedBuffer,
@@ -140,25 +141,33 @@ mod tests {
         let mut block_bitmap = Bitmap::for_block_group(layout.blocks_per_group);
         init_block_bitmap_group0(&mut block_bitmap, &layout, &params);
         
-        // Allocate a block for root directory data
-        // Find first free block after metadata
+        // Allocate blocks for directories
+        // Find first free blocks after metadata
         let mut dir_data_block = 0u64;
+        let mut lf_data_block = 0u64;
+        let mut blocks_allocated = 0;
         for i in 0..layout.blocks_per_group {
             if !block_bitmap.is_set(i) {
                 block_bitmap.set(i);
-                dir_data_block = i as u64;
-                break;
+                if blocks_allocated == 0 {
+                    dir_data_block = i as u64;
+                    println!("Allocated block {} for root directory data", dir_data_block);
+                } else if blocks_allocated == 1 {
+                    lf_data_block = i as u64;
+                    println!("Allocated block {} for lost+found directory data", lf_data_block);
+                    break;
+                }
+                blocks_allocated += 1;
             }
         }
-        assert!(dir_data_block > 0);
-        println!("Allocated block {} for root directory data", dir_data_block);
+        assert!(dir_data_block > 0 && lf_data_block > 0);
         
-        // Update group descriptor free blocks count
-        gd.bg_free_blocks_count_lo -= 1;
+        // Update group descriptor free blocks count (2 blocks allocated)
+        gd.bg_free_blocks_count_lo -= 2;
         
         // Also update superblock's free blocks count
         let current_free = sb.s_free_blocks_count_lo as u64 | ((sb.s_free_blocks_count_hi as u64) << 32);
-        let new_free = current_free - 1;
+        let new_free = current_free - 2;
         sb.s_free_blocks_count_lo = (new_free & 0xFFFFFFFF) as u32;
         sb.s_free_blocks_count_hi = ((new_free >> 32) & 0xFFFFFFFF) as u32;
         
@@ -166,21 +175,36 @@ mod tests {
         let mut inode_bitmap = Bitmap::for_inode_group(layout.inodes_per_group);
         init_inode_bitmap_group0(&mut inode_bitmap);
         
-        // Update free inodes count for inode 11 being marked
-        sb.s_free_inodes_count -= 1;
-        gd.bg_free_inodes_count_lo -= 1;
+        // Mark inode 11 (lost+found) as used
+        inode_bitmap.set(10);  // Inode 11 is at index 10
+        
+        // Free inodes count already accounts for inodes 1-11 being used
+        // (it was initialized as total - EXT4_FIRST_INO = 8192 - 11 = 8181)
+        // No need to subtract more!
+        // Also update unused inodes count
+        // Since we write the entire inode table (even zeros), all inodes are "initialized"
+        gd.bg_itable_unused_lo = 0;
+        gd.bg_used_dirs_count_lo = 2;  // Root and lost+found directories
         
         // Create root inode with extent pointing to directory data block
         let mut root_inode = Ext4Inode::new();
         root_inode.init_root_dir(&params);
+        root_inode.i_links_count = 3;  // . and .. and lost+found's parent reference
         update_root_inode_extents(&mut root_inode, dir_data_block);
         
-        // Create root directory data block
+        // Create lost+found inode
+        let mut lf_inode = Ext4Inode::new();
+        lf_inode.init_lost_found_dir(&params);
+        update_root_inode_extents(&mut lf_inode, lf_data_block);
+        
+        // Create directory data blocks
         let dir_data = create_root_directory_block(params.block_size);
+        let lf_data = create_lost_found_directory_block(params.block_size);
         
         // Update checksums
         gd.update_checksum(0, &sb);
         root_inode.update_checksum(EXT4_ROOT_INO, &sb);
+        lf_inode.update_checksum(EXT4_FIRST_INO as u32, &sb);
         sb.update_checksum();
         
         // Now write everything to image file
@@ -251,12 +275,26 @@ mod tests {
         };
         inode_table_buffer[root_inode_offset..root_inode_offset + 256].copy_from_slice(root_inode_bytes);
         
+        // Write lost+found inode at position 10 (inode 11)
+        let lf_inode_offset = 10 * params.inode_size as usize;
+        let lf_inode_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &lf_inode as *const _ as *const u8,
+                256
+            )
+        };
+        inode_table_buffer[lf_inode_offset..lf_inode_offset + 256].copy_from_slice(lf_inode_bytes);
+        
         file.seek(SeekFrom::Start(current_block * 4096)).unwrap();
         file.write_all(&inode_table_buffer).unwrap();
         
         // Write root directory data at its allocated block
         file.seek(SeekFrom::Start(dir_data_block * 4096)).unwrap();
         file.write_all(&dir_data).unwrap();
+        
+        // Write lost+found directory data at its allocated block  
+        file.seek(SeekFrom::Start(lf_data_block * 4096)).unwrap();
+        file.write_all(&lf_data).unwrap();
         
         file.sync_all().unwrap();
         
@@ -267,8 +305,10 @@ mod tests {
         println!("  Inode bitmap at block {}", gd.bg_inode_bitmap_lo);
         println!("  Inode table at block {}", gd.bg_inode_table_lo);
         println!("  Root directory data at block {}", dir_data_block);
-        println!("\nRoot inode extent tree:");
-        println!("  Logical block 0 -> Physical block {}", dir_data_block);
+        println!("  Lost+found directory data at block {}", lf_data_block);
+        println!("\nDirectory structure:");
+        println!("  Root inode (2): links=3, extent 0 -> block {}", dir_data_block);
+        println!("  Lost+found inode (11): links=2, extent 0 -> block {}", lf_data_block);
         println!("\nTo validate:");
         println!("  Linux: e2fsck -fn {}", image_path);
         println!("  Linux: dumpe2fs {} 2>/dev/null | head -50", image_path);

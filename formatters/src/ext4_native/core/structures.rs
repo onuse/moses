@@ -501,26 +501,10 @@ impl Ext4GroupDesc {
             return;
         }
         
-        // Calculate checksum seed
-        let seed = if sb.s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM != 0 {
-            sb.s_checksum_seed
-        } else {
-            let uuid_crc = checksum::crc32c_ext4(&sb.s_uuid, !0);
-            uuid_crc
-        };
-        
-        // Calculate checksum over group number and descriptor
-        let mut crc = seed;
-        
-        // Include group number
-        let group_bytes = group.to_le_bytes();
-        crc = checksum::crc32c_ext4(&group_bytes, crc);
-        
         // Clear checksum field before calculation
-        let saved_checksum = self.bg_checksum;
         self.bg_checksum = 0;
         
-        // Calculate over descriptor (32 or 64 bytes depending on format)
+        // Get descriptor bytes
         let desc_size = if sb.s_desc_size >= 64 { 64 } else { 32 };
         let desc_bytes = unsafe {
             std::slice::from_raw_parts(
@@ -529,10 +513,16 @@ impl Ext4GroupDesc {
             )
         };
         
-        crc = checksum::crc32c_ext4(desc_bytes, crc);
+        // Calculate checksum using the proper method
+        // GDT_CSUM uses CRC16, METADATA_CSUM uses CRC32c
+        let checksum = checksum::calculate_group_desc_checksum(
+            desc_bytes,
+            &sb.s_uuid,
+            group,
+            desc_size
+        );
         
-        // Store only lower 16 bits
-        self.bg_checksum = (crc & 0xFFFF) as u16;
+        self.bg_checksum = checksum;
     }
 }
 
@@ -583,6 +573,32 @@ impl Ext4Inode {
     /// Create a new zeroed inode
     pub fn new() -> Self {
         unsafe { std::mem::zeroed() }
+    }
+    
+    /// Initialize as lost+found directory inode
+    pub fn init_lost_found_dir(&mut self, params: &FilesystemParams) {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as u32;
+        
+        self.i_mode = S_IFDIR | 0o700;  // Directory with mode 700
+        self.i_uid = 0;
+        self.i_gid = 0;
+        self.i_size_lo = params.block_size;
+        self.i_size_high = 0;
+        self.i_atime = now;
+        self.i_ctime = now;
+        self.i_mtime = now;
+        self.i_crtime = now;
+        self.i_links_count = 2;  // . and parent
+        self.i_blocks_lo = (params.block_size / 512) as u32;  // In 512-byte sectors
+        self.i_flags = EXT4_EXTENTS_FL;
+        self.i_generation = 0;
+        self.i_extra_isize = 32;
+        
+        // Initialize extent tree
+        self.init_extent_tree();
     }
     
     /// Initialize as root directory inode
@@ -748,25 +764,83 @@ impl Ext4Extent {
     }
 }
 
-/// Create root directory data block
+/// Create root directory data block with lost+found entry
 pub fn create_root_directory_block(block_size: u32) -> Vec<u8> {
     let mut data = vec![0u8; block_size as usize];
     let mut offset = 0;
     
     // Entry 1: "." pointing to root inode (2)
     let (dot_entry, dot_name) = Ext4DirEntry2::new(EXT4_ROOT_INO, ".", EXT4_FT_DIR);
-    let dot_size = Ext4DirEntry2::size_needed(1);
     
     // Entry 2: ".." also pointing to root inode (2) since root is its own parent
     let (dotdot_entry, dotdot_name) = Ext4DirEntry2::new(EXT4_ROOT_INO, "..", EXT4_FT_DIR);
-    let dotdot_size = Ext4DirEntry2::size_needed(2);
+    
+    // Entry 3: "lost+found" pointing to inode 11
+    let (lf_entry, lf_name) = Ext4DirEntry2::new(EXT4_FIRST_INO as u32, "lost+found", EXT4_FT_DIR);
     
     // Calculate record lengths
     // First entry is fixed size
     let mut dot_entry_mut = dot_entry;
     dot_entry_mut.rec_len = 12;  // Standard size for "." entry
     
-    // Second entry takes the rest of the block
+    // Second entry is fixed size
+    let mut dotdot_entry_mut = dotdot_entry;
+    dotdot_entry_mut.rec_len = 12;  // Standard size for ".." entry
+    
+    // Third entry takes the rest of the block
+    let mut lf_entry_mut = lf_entry;
+    lf_entry_mut.rec_len = (block_size as u16) - 24;
+    
+    // Write "." entry
+    unsafe {
+        let entry_bytes = std::slice::from_raw_parts(
+            &dot_entry_mut as *const _ as *const u8,
+            std::mem::size_of::<Ext4DirEntry2>()
+        );
+        data[offset..offset + 8].copy_from_slice(entry_bytes);
+    }
+    data[offset + 8..offset + 9].copy_from_slice(&dot_name);
+    offset = 12;
+    
+    // Write ".." entry
+    unsafe {
+        let entry_bytes = std::slice::from_raw_parts(
+            &dotdot_entry_mut as *const _ as *const u8,
+            std::mem::size_of::<Ext4DirEntry2>()
+        );
+        data[offset..offset + 8].copy_from_slice(entry_bytes);
+    }
+    data[offset + 8..offset + 10].copy_from_slice(&dotdot_name);
+    offset = 24;
+    
+    // Write "lost+found" entry
+    unsafe {
+        let entry_bytes = std::slice::from_raw_parts(
+            &lf_entry_mut as *const _ as *const u8,
+            std::mem::size_of::<Ext4DirEntry2>()
+        );
+        data[offset..offset + 8].copy_from_slice(entry_bytes);
+    }
+    data[offset + 8..offset + 8 + lf_name.len()].copy_from_slice(&lf_name);
+    
+    data
+}
+
+/// Create lost+found directory data block
+pub fn create_lost_found_directory_block(block_size: u32) -> Vec<u8> {
+    let mut data = vec![0u8; block_size as usize];
+    let mut offset = 0;
+    
+    // Entry 1: "." pointing to lost+found inode (11)
+    let (dot_entry, dot_name) = Ext4DirEntry2::new(EXT4_FIRST_INO as u32, ".", EXT4_FT_DIR);
+    
+    // Entry 2: ".." pointing to root inode (2)
+    let (dotdot_entry, dotdot_name) = Ext4DirEntry2::new(EXT4_ROOT_INO, "..", EXT4_FT_DIR);
+    
+    // Calculate record lengths
+    let mut dot_entry_mut = dot_entry;
+    dot_entry_mut.rec_len = 12;
+    
     let mut dotdot_entry_mut = dotdot_entry;
     dotdot_entry_mut.rec_len = (block_size as u16) - 12;
     
