@@ -150,53 +150,68 @@
             <div class="option-card">
               <h3>Format Options</h3>
               
-              <div class="form-group">
-                <label>File System</label>
-                <select v-model="formatOptions.filesystem_type" class="form-control">
-                  <option value="">Select a file system...</option>
-                  <optgroup label="Recommended">
-                    <option value="exfat">exFAT - Universal, no size limits</option>
-                  </optgroup>
-                  <optgroup label="Other Options">
-                    <option value="ntfs">NTFS - Windows native</option>
-                    <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
-                    <option value="ext4">EXT4 - Linux native</option>
-                  </optgroup>
-                </select>
-              </div>
+              <div class="options-layout">
+                <!-- Left Column: Dropdowns -->
+                <div class="options-left">
+                  <div class="form-group">
+                    <label>File System</label>
+                    <select v-model="formatOptions.filesystem_type" class="form-control">
+                      <option value="">Select a file system...</option>
+                      <optgroup label="Recommended">
+                        <option value="exfat">exFAT - Universal, no size limits</option>
+                      </optgroup>
+                      <optgroup label="Other Options">
+                        <option value="ntfs">NTFS - Windows native</option>
+                        <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
+                        <option value="ext4">EXT4 - Linux native</option>
+                      </optgroup>
+                    </select>
+                  </div>
 
-              <div class="form-group">
-                <label>Volume Label</label>
-                <input 
-                  v-model="formatOptions.label" 
-                  type="text" 
-                  class="form-control"
-                  :placeholder="labelPlaceholder"
-                  :maxlength="maxLabelLength"
-                >
-                <span class="form-hint">{{ labelHint }}</span>
-              </div>
+                  <div class="form-group">
+                    <label>Volume Label</label>
+                    <input 
+                      v-model="formatOptions.label" 
+                      type="text" 
+                      class="form-control"
+                      :placeholder="labelPlaceholder"
+                      :maxlength="maxLabelLength"
+                    >
+                    <span class="form-hint">{{ labelHint }}</span>
+                  </div>
+                </div>
 
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" v-model="formatOptions.quick_format">
-                  <span class="checkbox-box"></span>
-                  <span class="checkbox-text">
-                    Quick Format
-                    <span class="checkbox-hint">Faster but less thorough</span>
-                  </span>
-                </label>
-              </div>
+                <!-- Right Column: Checkboxes -->
+                <div class="options-right">
+                  <div class="checkbox-group">
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="formatOptions.quick_format">
+                      <span class="checkbox-box"></span>
+                      <span class="checkbox-text">
+                        Quick Format
+                        <span class="checkbox-hint">Faster but less thorough</span>
+                      </span>
+                    </label>
 
-              <div class="form-group">
-                <label class="checkbox-label">
-                  <input type="checkbox" v-model="formatOptions.create_partition" checked disabled>
-                  <span class="checkbox-box checked"></span>
-                  <span class="checkbox-text">
-                    Create Partition Table
-                    <span class="checkbox-hint">Required for formatting</span>
-                  </span>
-                </label>
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="formatOptions.verify_after_format">
+                      <span class="checkbox-box"></span>
+                      <span class="checkbox-text">
+                        Verify After Format
+                        <span class="checkbox-hint">Validate filesystem integrity</span>
+                      </span>
+                    </label>
+
+                    <label class="checkbox-label">
+                      <input type="checkbox" v-model="formatOptions.create_partition" checked disabled>
+                      <span class="checkbox-box checked"></span>
+                      <span class="checkbox-text">
+                        Create Partition Table
+                        <span class="checkbox-hint">Required for formatting</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -311,6 +326,7 @@ interface FormatOptions {
   cluster_size: number | null
   quick_format: boolean
   enable_compression: boolean
+  verify_after_format: boolean
   additional_options: Record<string, string>
 }
 
@@ -331,6 +347,7 @@ const loading = ref(false)
 const isRefreshing = ref(false)
 const isFormatting = ref(false)
 const isSimulating = ref(false)
+const isElevated = ref(false)
 const simulationReport = ref<SimulationReport | null>(null)
 const formatProgress = ref(0)
 const progressStatus = ref('')
@@ -343,6 +360,7 @@ const formatOptions = ref<FormatOptions>({
   cluster_size: null,
   quick_format: true,
   enable_compression: false,
+  verify_after_format: false,
   additional_options: {}
 })
 
@@ -500,8 +518,26 @@ const simulateFormat = async () => {
   }
 }
 
+const checkElevation = async () => {
+  try {
+    isElevated.value = await invoke('check_elevation_status')
+    return isElevated.value
+  } catch (error) {
+    console.error('Failed to check elevation status:', error)
+    return false
+  }
+}
+
 const executeFormat = async () => {
   if (!selectedDevice.value || !formatOptions.value.filesystem_type) return
+  
+  // Log elevation status if not elevated (but don't show popup - UAC will handle that)
+  if (navigator.userAgent.includes('Windows')) {
+    const elevated = await checkElevation()
+    if (!elevated) {
+      logConsole.value?.info('Administrator privileges will be requested for the format operation', 'System')
+    }
+  }
   
   const confirmMsg = `WARNING: This will permanently erase all data on ${selectedDevice.value.name}.\n\nAre you sure you want to continue?`
   
@@ -516,8 +552,8 @@ const executeFormat = async () => {
   
   isFormatting.value = true
   formatProgress.value = 0
-  progressStatus.value = 'Initializing...'
-  currentOperation.value = 'Preparing device'
+  progressStatus.value = 'Requesting administrator privileges...'
+  currentOperation.value = 'Waiting for UAC approval'
   
   // Log format operation start
   logConsole.value?.info('='.repeat(60), 'Formatter')
@@ -611,6 +647,17 @@ onMounted(async () => {
     logConsole.value?.info('Log console connected to backend', 'System')
   } catch (error) {
     console.error('Failed to set up log listener:', error)
+  }
+  
+  // Check elevation status on Windows
+  if (navigator.userAgent.includes('Windows')) {
+    const elevated = await checkElevation()
+    if (elevated) {
+      logConsole.value?.info('Running with administrator privileges', 'System')
+    } else {
+      logConsole.value?.info('Running without administrator privileges', 'System')
+      logConsole.value?.info('Administrator privileges will be requested when formatting', 'System')
+    }
   }
   
   refreshDevices()
@@ -818,6 +865,10 @@ body {
 /* Sidebar */
 .sidebar {
   width: 280px;
+  min-width: 200px;
+  max-width: 400px;
+  resize: horizontal;
+  overflow: auto;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -1123,6 +1174,30 @@ body {
   color: var(--text-secondary);
 }
 
+/* New layout for left/right columns */
+.options-layout {
+  display: flex;
+  gap: 24px;
+  margin-bottom: 20px;
+}
+
+.options-left {
+  flex: 1;
+  min-width: 200px;
+}
+
+.options-right {
+  flex: 0 0 auto;
+  min-width: 180px;
+  padding-top: 20px;
+}
+
+.checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 /* Checkbox */
 .checkbox-label {
   display: flex;
@@ -1135,18 +1210,20 @@ body {
 }
 
 .checkbox-box {
-  width: 16px;
-  height: 16px;
-  background: var(--bg-input);
-  border: 1px solid var(--border-color);
+  width: 18px;
+  height: 18px;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent);
   border-radius: 3px;
   margin-right: 8px;
   flex-shrink: 0;
   position: relative;
+  transition: all 0.2s;
 }
 
 .checkbox-label:hover .checkbox-box {
-  border-color: var(--accent);
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
 }
 
 .checkbox-label input:checked + .checkbox-box,
@@ -1159,10 +1236,11 @@ body {
 .checkbox-box.checked::after {
   content: '✓';
   position: absolute;
-  top: -2px;
-  left: 2px;
+  top: -1px;
+  left: 3px;
   color: white;
-  font-size: 12px;
+  font-size: 14px;
+  font-weight: bold;
 }
 
 .checkbox-text {

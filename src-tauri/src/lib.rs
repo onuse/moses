@@ -3,11 +3,161 @@ use moses_core::{Device, DeviceManager, FilesystemFormatter, FormatOptions, Simu
 use moses_platform::PlatformDeviceManager;
 use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
 
+#[cfg(target_os = "windows")]
+use moses_platform::windows::elevation::is_elevated;
+
+mod logging;
+
 #[cfg(target_os = "linux")]
 use moses_formatters::Ext4LinuxFormatter;
 
 #[cfg(target_os = "windows")]
 use moses_formatters::Ext4NativeFormatter;
+
+#[tauri::command]
+async fn check_elevation_status() -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(is_elevated())
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On Linux/macOS, check if we have necessary permissions
+        // This is a simplified check - you might want more sophisticated logic
+        Ok(unsafe { libc::geteuid() } == 0)
+    }
+}
+
+#[tauri::command]
+async fn execute_format_elevated(
+    device: Device,
+    options: FormatOptions,
+) -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::env;
+        
+        // Get the path to the elevated worker executable
+        let worker_exe = env::current_exe()
+            .map_err(|e| format!("Failed to get executable path: {}", e))?
+            .parent()
+            .ok_or_else(|| "Failed to get executable directory".to_string())?
+            .join("moses-formatter.exe");
+        
+        // Serialize device and options to JSON
+        let device_json = serde_json::to_string(&device)
+            .map_err(|e| format!("Failed to serialize device: {}", e))?;
+        let options_json = serde_json::to_string(&options)
+            .map_err(|e| format!("Failed to serialize options: {}", e))?;
+        
+        // Log what we're passing to the worker
+        log::info!("Passing to elevated worker - Device: name={}, id={}, size={}", 
+                   device.name, device.id, device.size);
+        log::info!("Options: filesystem={}, cluster_size={:?}", 
+                   options.filesystem_type, options.cluster_size);
+        
+        // If we're already elevated, run the worker directly
+        if is_elevated() {
+            let output = Command::new(&worker_exe)
+                .arg(&device_json)
+                .arg(&options_json)
+                .output()
+                .map_err(|e| format!("Failed to run worker: {}", e))?;
+            
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                Ok(stdout.trim().to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(stderr.trim().to_string())
+            }
+        } else {
+            // Request elevation for the worker process
+            // Write JSON to temp files to avoid escaping issues
+            use std::fs;
+            use std::os::windows::process::CommandExt;
+            
+            let temp_dir = env::temp_dir();
+            let device_file = temp_dir.join(format!("moses_device_{}.json", std::process::id()));
+            let options_file = temp_dir.join(format!("moses_options_{}.json", std::process::id()));
+            let output_file = temp_dir.join(format!("moses_output_{}.json", std::process::id()));
+            
+            // Write JSON to temp files
+            fs::write(&device_file, &device_json)
+                .map_err(|e| format!("Failed to write device JSON to temp file: {}", e))?;
+            fs::write(&options_file, &options_json)
+                .map_err(|e| format!("Failed to write options JSON to temp file: {}", e))?;
+            
+            let ps_script = format!(
+                r#"
+                $worker = '{}'
+                $deviceFile = '{}'
+                $optionsFile = '{}'
+                
+                # Start the worker with elevation
+                $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+                $startInfo.FileName = $worker
+                $startInfo.Arguments = "`"$deviceFile`" `"$optionsFile`""
+                $startInfo.Verb = 'runas'
+                $startInfo.UseShellExecute = $true
+                $startInfo.RedirectStandardOutput = $false
+                $startInfo.RedirectStandardError = $false
+                
+                try {{
+                    $process = [System.Diagnostics.Process]::Start($startInfo)
+                    $process.WaitForExit()
+                    
+                    # Clean up temp files
+                    Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
+                    Remove-Item -Path $optionsFile -ErrorAction SilentlyContinue
+                    
+                    if ($process.ExitCode -eq 0) {{
+                        Write-Output "Format completed successfully"
+                        exit 0
+                    }} else {{
+                        Write-Error "Format failed with exit code: $($process.ExitCode)"
+                        exit 1
+                    }}
+                }} catch {{
+                    Write-Error "Failed to start elevated worker: $_"
+                    # Clean up temp files on error
+                    Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
+                    Remove-Item -Path $optionsFile -ErrorAction SilentlyContinue
+                    exit 1
+                }}
+                "#,
+                worker_exe.display(),
+                device_file.display(),
+                options_file.display()
+            );
+            
+            let output = Command::new("powershell")
+                .args(&[
+                    "-NoProfile",
+                    "-ExecutionPolicy", "Bypass",
+                    "-Command", &ps_script
+                ])
+                .creation_flags(0x08000000) // CREATE_NO_WINDOW
+                .output()
+                .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+            
+            if output.status.success() {
+                Ok("Format completed successfully".to_string())
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("Format failed: {}", stderr.trim()))
+            }
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On non-Windows platforms, use sudo or pkexec
+        execute_format(device, options).await
+    }
+}
 
 #[tauri::command]
 async fn enumerate_devices() -> Result<Vec<Device>, String> {
@@ -79,22 +229,31 @@ async fn execute_format(
     device: Device,
     options: FormatOptions,
 ) -> Result<String, String> {
-    // Safety check - never format system drives
-    if device.is_system {
-        return Err("Cannot format system drive. This would make your system unbootable!".to_string());
+    // On Windows, use the elevated worker approach
+    #[cfg(target_os = "windows")]
+    {
+        return execute_format_elevated(device, options).await;
     }
     
-    // Additional safety check for critical mount points
-    for mount in &device.mount_points {
-        let mount_str = mount.to_string_lossy().to_lowercase();
-        if mount_str == "/" || 
-           mount_str == "c:\\" || 
-           mount_str.starts_with("/boot") ||
-           mount_str.starts_with("/system") ||
-           mount_str.starts_with("c:\\windows") {
-            return Err(format!("Cannot format drive with critical mount point: {}", mount_str));
+    // For non-Windows platforms, continue with the original implementation
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Safety check - never format system drives
+        if device.is_system {
+            return Err("Cannot format system drive. This would make your system unbootable!".to_string());
         }
-    }
+        
+        // Additional safety check for critical mount points
+        for mount in &device.mount_points {
+            let mount_str = mount.to_string_lossy().to_lowercase();
+            if mount_str == "/" || 
+               mount_str == "c:\\" || 
+               mount_str.starts_with("/boot") ||
+               mount_str.starts_with("/system") ||
+               mount_str.starts_with("c:\\windows") {
+                return Err(format!("Cannot format drive with critical mount point: {}", mount_str));
+            }
+        }
     
     // Select and execute the appropriate formatter
     match options.filesystem_type.as_str() {
@@ -229,11 +388,16 @@ async fn execute_format(
             Err(format!("Unsupported filesystem type: {}", options.filesystem_type))
         }
     }
+    } // End of cfg(not(target_os = "windows")) block
 }
 
 #[tauri::command]
 async fn check_formatter_requirements(filesystem_type: String) -> Result<Vec<String>, String> {
     // Check what tools are required for each filesystem
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    let mut missing_tools = Vec::new();
+    
+    #[cfg(target_os = "windows")]
     let missing_tools = Vec::new();
     
     match filesystem_type.as_str() {
@@ -320,19 +484,20 @@ async fn check_formatter_requirements(filesystem_type: String) -> Result<Vec<Str
 pub fn run() {
     tauri::Builder::default()
         .setup(|app| {
-            if cfg!(debug_assertions) {
-                app.handle().plugin(
-                    tauri_plugin_log::Builder::default()
-                        .level(log::LevelFilter::Info)
-                        .build(),
-                )?;
-            }
+            // Initialize our custom logger that sends logs to the UI
+            logging::init_logger(app.handle().clone());
+            
+            // Note: We're not using tauri_plugin_log anymore since we have our own logger
+            // that bridges the standard log crate to the UI console
+            
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            check_elevation_status,
             enumerate_devices,
             simulate_format,
             execute_format,
+            execute_format_elevated,
             check_formatter_requirements
         ])
         .run(tauri::generate_context!())

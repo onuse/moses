@@ -1,6 +1,7 @@
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter};
 use serde::{Serialize, Deserialize};
+use log::{Log, Metadata, Record, Level};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
@@ -39,22 +40,6 @@ impl LogCapture {
         // Also log to console
         eprintln!("[{}] {} {}", level, source.unwrap_or(""), message);
     }
-    
-    pub fn debug(&self, message: &str, source: Option<&str>) {
-        self.log("DEBUG", message, source);
-    }
-    
-    pub fn info(&self, message: &str, source: Option<&str>) {
-        self.log("INFO", message, source);
-    }
-    
-    pub fn warn(&self, message: &str, source: Option<&str>) {
-        self.log("WARN", message, source);
-    }
-    
-    pub fn error(&self, message: &str, source: Option<&str>) {
-        self.log("ERROR", message, source);
-    }
 }
 
 // Global logger instance
@@ -62,38 +47,46 @@ lazy_static::lazy_static! {
     pub static ref LOGGER: Mutex<LogCapture> = Mutex::new(LogCapture::new());
 }
 
+// Bridge to standard log crate
+pub struct TauriLogger;
+
+impl Log for TauriLogger {
+    fn enabled(&self, metadata: &Metadata) -> bool {
+        metadata.level() <= Level::Debug
+    }
+
+    fn log(&self, record: &Record) {
+        if self.enabled(record.metadata()) {
+            let level = match record.level() {
+                Level::Error => "ERROR",
+                Level::Warn => "WARN",
+                Level::Info => "INFO",
+                Level::Debug => "DEBUG",
+                Level::Trace => "DEBUG",
+            };
+            
+            let source = record.target();
+            let message = format!("{}", record.args());
+            
+            if let Ok(logger) = LOGGER.lock() {
+                logger.log(level, &message, Some(source));
+            }
+        }
+    }
+
+    fn flush(&self) {}
+}
+
 pub fn init_logger(app_handle: AppHandle) {
+    // Set up the Tauri app handle
     let mut logger = LOGGER.lock().unwrap();
     logger.set_app_handle(app_handle);
-}
-
-// Convenience macros
-#[macro_export]
-macro_rules! log_debug {
-    ($msg:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().debug($msg, None)
-    };
-    ($msg:expr, $src:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().debug($msg, Some($src))
-    };
-}
-
-#[macro_export]
-macro_rules! log_info {
-    ($msg:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().info($msg, None)
-    };
-    ($msg:expr, $src:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().info($msg, Some($src))
-    };
-}
-
-#[macro_export]
-macro_rules! log_error {
-    ($msg:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().error($msg, None)
-    };
-    ($msg:expr, $src:expr) => {
-        $crate::logging::LOGGER.lock().unwrap().error($msg, Some($src))
-    };
+    drop(logger);
+    
+    // Initialize the log crate to use our TauriLogger
+    let _ = log::set_boxed_logger(Box::new(TauriLogger));
+    log::set_max_level(log::LevelFilter::Debug);
+    
+    // Log that the logger is initialized
+    log::info!("Logger initialized and connected to UI console");
 }

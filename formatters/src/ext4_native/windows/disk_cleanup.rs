@@ -1,5 +1,7 @@
 // Windows disk cleanup - dismount all volumes before formatting
 
+use log::{debug, info, warn};
+
 #[cfg(target_os = "windows")]
 use winapi::{
     um::fileapi::{CreateFileW, OPEN_EXISTING, FindFirstVolumeW, FindNextVolumeW, FindVolumeClose},
@@ -35,7 +37,7 @@ struct VolumeDiskExtents {
 
 #[cfg(target_os = "windows")]
 pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String> {
-    eprintln!("DEBUG: Starting disk cleanup for PhysicalDrive{}", physical_drive_number);
+    info!("Starting disk cleanup for PhysicalDrive{}", physical_drive_number);
     
     unsafe {
         // Find all volumes and check if they're on our target disk
@@ -43,7 +45,7 @@ pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String>
         let find_handle = FindFirstVolumeW(volume_name.as_mut_ptr(), MAX_PATH as DWORD);
         
         if find_handle == INVALID_HANDLE_VALUE {
-            eprintln!("DEBUG: No volumes found to dismount");
+            debug!("No volumes found to dismount");
             return Ok(());
         }
         
@@ -53,7 +55,7 @@ pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String>
                 .trim_end_matches('\0')
                 .to_string();
             
-            eprintln!("DEBUG: Checking volume: {}", volume_str);
+            debug!("Checking volume: {}", volume_str);
             
             // Open the volume
             let volume_path = volume_str.trim_end_matches('\\');
@@ -90,7 +92,7 @@ pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String>
                 
                 if result != FALSE && extents.number_of_disk_extents > 0 {
                     if extents.extents[0].disk_number == physical_drive_number {
-                        eprintln!("DEBUG: Found volume on target disk, dismounting: {}", volume_str);
+                        info!("Found volume on target disk, dismounting: {}", volume_str);
                         
                         // Lock the volume
                         let mut lock_bytes: DWORD = 0;
@@ -119,10 +121,10 @@ pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String>
                         );
                         
                         if dismount_result != FALSE {
-                            eprintln!("DEBUG: Successfully dismounted volume");
+                            debug!("Successfully dismounted volume");
                         } else {
                             let error = GetLastError();
-                            eprintln!("DEBUG: Failed to dismount volume, error: {} (0x{:X})", error, error);
+                            warn!("Failed to dismount volume, error: {} (0x{:X})", error, error);
                         }
                     }
                 }
@@ -139,7 +141,7 @@ pub fn cleanup_disk_for_format(physical_drive_number: u32) -> Result<(), String>
         FindVolumeClose(find_handle);
     }
     
-    eprintln!("DEBUG: Disk cleanup completed");
+    info!("Disk cleanup completed");
     Ok(())
 }
 

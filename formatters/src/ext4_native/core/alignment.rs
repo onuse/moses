@@ -2,6 +2,8 @@
 // CRITICAL: Get this wrong and nothing works!
 
 use std::ops::{Deref, DerefMut};
+#[cfg(target_os = "windows")]
+use log::{debug, warn};
 
 /// A buffer with guaranteed alignment for Windows sector I/O
 /// Windows requires 512-byte alignment for FILE_FLAG_NO_BUFFERING
@@ -131,7 +133,7 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
         bytes_per_sector: u32,
     }
 
-    eprintln!("DEBUG: Getting sector size for device: {}", device_path);
+    debug!("Getting sector size for device: {}", device_path);
 
     unsafe {
         let wide_path: Vec<u16> = OsStr::new(device_path)
@@ -151,10 +153,10 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
 
         if handle == INVALID_HANDLE_VALUE || handle.is_null() {
             let error = GetLastError();
-            eprintln!("DEBUG: Failed to open device for geometry. Error: {} (0x{:X})", error, error);
+            debug!("Failed to open device for geometry. Error: {} (0x{:X})", error, error);
             
             // If we can't get the geometry, default to 512 bytes which is standard
-            eprintln!("DEBUG: Defaulting to 512 byte sector size");
+            warn!("Defaulting to 512 byte sector size");
             return Ok(512);
         }
 
@@ -176,12 +178,12 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
 
         if success == 0 {
             let error = GetLastError();
-            eprintln!("DEBUG: DeviceIoControl failed. Error: {} (0x{:X})", error, error);
-            eprintln!("DEBUG: Defaulting to 512 byte sector size");
+            debug!("DeviceIoControl failed. Error: {} (0x{:X})", error, error);
+            warn!("Defaulting to 512 byte sector size");
             return Ok(512); // Default to 512 bytes
         }
 
-        eprintln!("DEBUG: Got sector size: {} bytes", geometry.bytes_per_sector);
+        debug!("Got sector size: {} bytes", geometry.bytes_per_sector);
         Ok(geometry.bytes_per_sector)
     }
 }

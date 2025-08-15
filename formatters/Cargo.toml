@@ -21,6 +21,7 @@ byteorder = "1.4"
 static_assertions = "1.1"
 hex = "0.4"
 crc32fast = "1.5.0"
+log = "0.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "winnt", "handleapi", "ioapiset", "winioctl", "errhandlingapi", "winbase", "minwindef"] }

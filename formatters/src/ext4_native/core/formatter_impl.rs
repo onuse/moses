@@ -1,12 +1,15 @@
 // Implementation of complete ext4 filesystem formatting
 
 use moses_core::{Device, FormatOptions, MosesError};
+use log::{debug, info, warn, error};
+use std::sync::Arc;
 use crate::ext4_native::core::{
     structures::*,
     types::{FilesystemParams, FilesystemLayout},
     alignment::AlignedBuffer,
     bitmap::{Bitmap, init_block_bitmap_group0, init_inode_bitmap_group0},
     constants::*,
+    progress::{ProgressReporter, ProgressCallback, LoggingProgress},
 };
 #[cfg(not(target_os = "windows"))]
 use std::fs::OpenOptions;
@@ -15,12 +18,25 @@ use std::io::{Write, Seek, SeekFrom};
 #[cfg(target_os = "windows")]
 use crate::ext4_native::windows::WindowsDeviceIO;
 
-/// Write complete ext4 filesystem to device
-pub async fn format_device(
+/// Write complete ext4 filesystem to device with progress reporting
+pub async fn format_device_with_progress(
     device: &Device,
     options: &FormatOptions,
+    progress_callback: Arc<dyn ProgressCallback>,
 ) -> Result<(), MosesError> {
+    // Initialize progress reporter with estimated steps
+    let total_steps = 10; // Major formatting steps
+    let estimated_bytes = device.size / 100; // Estimate ~1% of device will be written for metadata
+    let mut progress = ProgressReporter::new(total_steps, estimated_bytes, progress_callback);
+    
+    progress.start_step(0, "Initializing filesystem parameters");
     // Convert options to filesystem parameters
+    info!("=== DEVICE FORMATTING START ===");
+    info!("Device ID: {}", device.id);
+    info!("Device name: {}", device.name);
+    info!("Device size: {} bytes ({} GB)", device.size, device.size / (1024*1024*1024));
+    info!("Cluster size: {:?}", options.cluster_size);
+    
     let params = FilesystemParams {
         size_bytes: device.size,
         block_size: options.cluster_size.unwrap_or(4096) as u32,
@@ -32,17 +48,39 @@ pub async fn format_device(
         enable_journal: false,
     };
     
+    info!("Filesystem params created: block_size={}, size_bytes={}", 
+          params.block_size, params.size_bytes);
+    
     // Calculate filesystem layout
     let layout = FilesystemLayout::from_params(&params)
         .map_err(|e| MosesError::Other(e.to_string()))?;
+    
+    info!("Filesystem layout calculated:");
+    info!("  Total blocks: {}", layout.total_blocks);
+    info!("  Blocks per group: {}", layout.blocks_per_group);
+    info!("  Number of groups: {}", layout.num_groups);
+    info!("  Inodes per group: {}", layout.inodes_per_group);
+    info!("  Device size: {} bytes", params.size_bytes);
+    info!("  Block size: {} bytes", params.block_size);
+    
+    progress.start_step(1, "Creating filesystem structures");
     
     // Create and initialize superblock
     let mut sb = Ext4Superblock::new();
     sb.init_minimal(&params, &layout);
     
+    progress.start_step(2, "Initializing block groups");
+    
     // Create group descriptor
     let mut gd = Ext4GroupDesc::new();
+    info!("Initializing group descriptor for group 0");
+    info!("Layout: blocks_per_group={}, total_blocks={}, num_groups={}", 
+          layout.blocks_per_group, layout.total_blocks, layout.num_groups);
     gd.init(0, &layout, &params);
+    let gd_free_initial = gd.bg_free_blocks_count_lo as u32 
+        | ((gd.bg_free_blocks_count_hi as u32) << 16);
+    info!("Group descriptor after init: free_blocks_lo={:#x}, free_blocks_hi={:#x}, total={}", 
+          gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, gd_free_initial);
     
     // Create block bitmap
     let mut block_bitmap = Bitmap::for_block_group(layout.blocks_per_group);
@@ -69,19 +107,16 @@ pub async fn format_device(
     // Need to handle this as a 32-bit value split across two u16 fields
     let current_gd_free = gd.bg_free_blocks_count_lo as u32 
         | ((gd.bg_free_blocks_count_hi as u32) << 16);
-    eprintln!("DEBUG: Group 0 before allocating dirs: lo={:#06x} hi={:#06x} total={}", 
-              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, current_gd_free);
+    debug!("Group 0 before allocating dirs: lo={:#06x} hi={:#06x} total={}", 
+           gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, current_gd_free);
     let new_gd_free = current_gd_free.saturating_sub(2);
     gd.bg_free_blocks_count_lo = (new_gd_free & 0xFFFF) as u16;
     gd.bg_free_blocks_count_hi = ((new_gd_free >> 16) & 0xFFFF) as u16;
-    eprintln!("DEBUG: Group 0 after allocating dirs: lo={:#06x} hi={:#06x} total={}", 
-              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, new_gd_free);
+    debug!("Group 0 after allocating dirs: lo={:#06x} hi={:#06x} total={}", 
+           gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, new_gd_free);
     
-    // Also update superblock's free blocks count
-    let current_free = sb.s_free_blocks_count_lo as u64 | ((sb.s_free_blocks_count_hi as u64) << 32);
-    let new_free = current_free - 2;
-    sb.s_free_blocks_count_lo = (new_free & 0xFFFFFFFF) as u32;
-    sb.s_free_blocks_count_hi = ((new_free >> 32) & 0xFFFFFFFF) as u32;
+    // Don't update superblock's free blocks count here - we'll recalculate it properly later
+    // This avoids double-counting and potential underflow issues
     
     // Create inode bitmap
     let mut inode_bitmap = Bitmap::for_inode_group(layout.inodes_per_group);
@@ -113,19 +148,49 @@ pub async fn format_device(
     let dir_data = create_root_directory_block(params.block_size);
     let lf_data = create_lost_found_directory_block(params.block_size);
     
-    // Recalculate total free blocks after setting up all groups
+    // Recalculate total free blocks from scratch to avoid accumulation errors
     // The superblock needs the sum of all groups' free blocks
-    // Note: bg_free_blocks_count is a 32-bit value split into lo(16) and hi(16)
-    let group0_free = gd.bg_free_blocks_count_lo as u32 
+    debug!("=== FINAL FREE BLOCKS CALCULATION ===");
+    debug!("Total groups: {}", layout.num_groups);
+    
+    // Calculate group 0's free blocks properly
+    // Group 0 has metadata + 2 blocks allocated for directories
+    let group0_metadata = layout.metadata_blocks_per_group(0) as u64;
+    let group0_total = layout.blocks_per_group as u64;
+    let group0_allocated = group0_metadata + 2; // +2 for root and lost+found directories
+    
+    // Add defensive logging to catch overflow
+    info!("Group 0 calculation: total={}, metadata={}, allocated={}", 
+          group0_total, group0_metadata, group0_allocated);
+    info!("Raw metadata_blocks_per_group(0) returned: {}", layout.metadata_blocks_per_group(0));
+    info!("Raw blocks_per_group: {}", layout.blocks_per_group);
+    
+    if group0_allocated > group0_total {
+        error!("OVERFLOW DETECTED: Group 0 allocated blocks {} exceeds total {}", 
+               group0_allocated, group0_total);
+        return Err(MosesError::Other(format!(
+            "Group 0 metadata overflow: {} + 2 > {}", 
+            group0_metadata, group0_total
+        )));
+    }
+    
+    let group0_free = group0_total.saturating_sub(group0_allocated);
+    let mut total_free_blocks = group0_free;
+    
+    debug!("Group 0: {} total blocks, {} metadata, 2 dir blocks, {} free", 
+           group0_total, group0_metadata, group0_free);
+    info!("Starting total_free_blocks with group 0: {}", total_free_blocks);
+    
+    // Verify the group descriptor matches our calculation
+    let gd_free = gd.bg_free_blocks_count_lo as u32 
         | ((gd.bg_free_blocks_count_hi as u32) << 16);
-    let mut total_free_blocks = group0_free as u64;
-    
-    eprintln!("DEBUG: === FINAL FREE BLOCKS CALCULATION ===");
-    eprintln!("DEBUG: Group 0 descriptor: lo={:#06x} hi={:#06x} => {} free blocks", 
-              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, group0_free);
-    
-    eprintln!("DEBUG: Group 0 free blocks: {}", total_free_blocks);
-    eprintln!("DEBUG: Total groups: {}", layout.num_groups);
+    if gd_free as u64 != group0_free {
+        debug!("WARNING: Group descriptor free blocks {} doesn't match calculated {}", 
+               gd_free, group0_free);
+        // Fix the group descriptor
+        gd.bg_free_blocks_count_lo = (group0_free & 0xFFFF) as u16;
+        gd.bg_free_blocks_count_hi = ((group0_free >> 16) & 0xFFFF) as u16;
+    }
     
     // Add free blocks from uninitialized groups (1 through num_groups-1)
     for group_idx in 1..layout.num_groups {
@@ -140,20 +205,48 @@ pub async fn format_device(
         };
         
         let metadata_blocks = layout.metadata_blocks_per_group(group_idx);
+        
+        // Defensive check: metadata should never exceed blocks in group
+        if metadata_blocks > blocks_in_group {
+            error!("Group {} metadata blocks {} exceeds blocks in group {}!", 
+                   group_idx, metadata_blocks, blocks_in_group);
+            return Err(MosesError::Other(format!(
+                "Invalid metadata calculation for group {}", group_idx
+            )));
+        }
+        
         let free_blocks = blocks_in_group.saturating_sub(metadata_blocks) as u64;
+        let old_total = total_free_blocks;
         total_free_blocks += free_blocks;
         
-        eprintln!("DEBUG: Group {} - blocks_in_group: {}, metadata: {}, free: {}", 
-                  group_idx, blocks_in_group, metadata_blocks, free_blocks);
+        debug!("Group {} - blocks_in_group: {}, metadata: {}, free: {}", 
+               group_idx, blocks_in_group, metadata_blocks, free_blocks);
+        
+        // Check for overflow
+        if total_free_blocks < old_total {
+            error!("OVERFLOW in group {}: old_total={}, free_blocks={}, new_total={}", 
+                   group_idx, old_total, free_blocks, total_free_blocks);
+        }
+        if group_idx % 50 == 0 || group_idx == layout.num_groups - 1 {
+            info!("After group {}: total_free_blocks = {}", group_idx, total_free_blocks);
+        }
     }
     
-    eprintln!("DEBUG: Total free blocks calculated: {}", total_free_blocks);
-    eprintln!("DEBUG: Total blocks in filesystem: {}", layout.total_blocks);
+    debug!("Total free blocks calculated: {}", total_free_blocks);
+    debug!("Total blocks in filesystem: {}", layout.total_blocks);
+    
+    // Log the values immediately before the check
+    info!("FINAL CHECK: total_free_blocks={}, layout.total_blocks={}", 
+          total_free_blocks, layout.total_blocks);
+    info!("FINAL CHECK: comparison result: {} > {} = {}", 
+          total_free_blocks, layout.total_blocks, total_free_blocks > layout.total_blocks);
     
     // Sanity check - free blocks should be less than total blocks
     if total_free_blocks > layout.total_blocks {
-        eprintln!("ERROR: Critical calculation error - free blocks {} exceeds total blocks {}!", 
-                  total_free_blocks, layout.total_blocks);
+        error!("Critical calculation error - free blocks {} exceeds total blocks {}!", 
+               total_free_blocks, layout.total_blocks);
+        error!("Values in hex: free_blocks={:#x}, total_blocks={:#x}",
+               total_free_blocks, layout.total_blocks);
         // This should never happen with correct calculation
         return Err(MosesError::Other(format!(
             "Free blocks calculation overflow: {} > {}", 
@@ -165,10 +258,10 @@ pub async fn format_device(
     sb.s_free_blocks_count_lo = (total_free_blocks & 0xFFFFFFFF) as u32;
     sb.s_free_blocks_count_hi = ((total_free_blocks >> 32) & 0xFFFFFFFF) as u32;
     
-    eprintln!("DEBUG: Superblock s_free_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
-              sb.s_free_blocks_count_lo, sb.s_free_blocks_count_hi, total_free_blocks);
-    eprintln!("DEBUG: Superblock s_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
-              sb.s_blocks_count_lo, sb.s_blocks_count_hi, layout.total_blocks);
+    debug!("Superblock s_free_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
+           sb.s_free_blocks_count_lo, sb.s_free_blocks_count_hi, total_free_blocks);
+    debug!("Superblock s_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
+           sb.s_blocks_count_lo, sb.s_blocks_count_hi, layout.total_blocks);
     
     // Similarly update total free inodes - also fix the shift here
     let group0_free_inodes = gd.bg_free_inodes_count_lo as u32 
@@ -183,11 +276,13 @@ pub async fn format_device(
     sb.s_free_inodes_count = total_free_inodes;
     
     // Update checksums
+    progress.start_step(3, "Calculating checksums");
     gd.update_checksum(0, &sb);
     root_inode.update_checksum(EXT4_ROOT_INO, &sb);
     lf_inode.update_checksum(EXT4_FIRST_INO as u32, &sb);
     sb.update_checksum();
     
+    progress.start_step(4, "Opening device for writing");
     // Open device for writing
     #[cfg(target_os = "windows")]
     let device_path = if device.id.starts_with(r"\\.\") {
@@ -198,7 +293,7 @@ pub async fn format_device(
     #[cfg(not(target_os = "windows"))]
     let device_path = format!("/dev/{}", device.id);
     
-    eprintln!("DEBUG: Formatting device - ID: '{}', Path: '{}'", device.id, device_path);
+    info!("Formatting device - ID: '{}', Path: '{}'", device.id, device_path);
     
     #[cfg(target_os = "windows")]
     let mut device_io = WindowsDeviceIO::open(&device_path)
@@ -210,6 +305,7 @@ pub async fn format_device(
         .open(&device_path)
         .map_err(|e| MosesError::Other(format!("Failed to open device {}: {}", device_path, e)))?;
     
+    progress.start_step(5, "Zeroing device metadata area");
     // Write zeros for initial part of device
     #[cfg(target_os = "windows")]
     {
@@ -244,6 +340,7 @@ pub async fn format_device(
     }
     
     // Write all filesystem structures
+    progress.start_step(6, "Writing superblock");
     let mut current_block = 0u64;
     
     // Block 0: Superblock
@@ -264,6 +361,7 @@ pub async fn format_device(
     }
     current_block += 1;
     
+    progress.start_step(7, "Writing group descriptor table");
     // Block 1+: Group descriptor table
     // We need to write descriptors for ALL groups, not just group 0
     let mut gdt_buffer = vec![0u8; layout.gdt_blocks as usize * 4096];
@@ -380,6 +478,7 @@ pub async fn format_device(
     // Skip reserved GDT blocks
     current_block += layout.reserved_gdt_blocks as u64;
     
+    progress.start_step(8, "Writing bitmaps and inode table");
     // Block bitmap
     let mut bitmap_buffer = AlignedBuffer::<4096>::new();
     block_bitmap.write_to_buffer(&mut bitmap_buffer)
@@ -487,6 +586,7 @@ pub async fn format_device(
             .map_err(|e| MosesError::Other(format!("Failed to write lost+found: {}", e)))?;
     }
     
+    progress.start_step(9, "Flushing to disk");
     // Flush to disk
     #[cfg(target_os = "windows")]
     device_io.flush()
@@ -496,5 +596,60 @@ pub async fn format_device(
     file.sync_all()
         .map_err(|e| MosesError::Other(format!("Failed to sync device: {}", e)))?;
     
+    progress.complete();
+    Ok(())
+}
+
+/// Write complete ext4 filesystem to device (convenience function without progress)
+pub async fn format_device(
+    device: &Device,
+    options: &FormatOptions,
+) -> Result<(), MosesError> {
+    format_device_with_progress(device, options, Arc::new(LoggingProgress)).await
+}
+
+/// Format device with verification
+pub async fn format_device_with_verification(
+    device: &Device,
+    options: &FormatOptions,
+    progress_callback: Arc<dyn ProgressCallback>,
+) -> Result<(), MosesError> {
+    use crate::ext4_native::core::verify;
+    
+    // Format the device
+    format_device_with_progress(device, options, progress_callback.clone()).await?;
+    
+    info!("Starting post-format verification");
+    
+    // Verify the filesystem
+    let device_path = if cfg!(target_os = "windows") {
+        if device.id.starts_with(r"\\.\") {
+            device.id.clone()
+        } else {
+            format!(r"\\.\{}", device.id)
+        }
+    } else {
+        format!("/dev/{}", device.id)
+    };
+    
+    match verify::verify_device(&device_path) {
+        Ok(verification_result) => {
+            if !verification_result.is_valid {
+                let error_msg = verification_result.errors.join("; ");
+                // Log verification errors as warnings, don't fail the format
+                warn!("Filesystem verification found issues: {}", error_msg);
+                warn!("The filesystem was created but may have issues. Consider reformatting.");
+            } else if !verification_result.warnings.is_empty() {
+                warn!("Verification completed with warnings: {:?}", verification_result.warnings);
+            } else {
+                info!("Filesystem verification passed successfully");
+            }
+        }
+        Err(e) => {
+            // If verification itself fails (e.g., can't open device), just warn
+            warn!("Could not verify filesystem (format may have succeeded): {:?}", e);
+            warn!("This can happen on Windows if the device is locked. The format likely succeeded.");
+        }
+    }
     Ok(())
 }

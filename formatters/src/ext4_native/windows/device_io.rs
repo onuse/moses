@@ -15,6 +15,7 @@ use winapi::{
 
 use crate::ext4_native::core::{alignment::AlignedBuffer, types::*};
 use std::ptr::null_mut;
+use log::{debug, info, error};
 
 /// Get device size using Windows IOCTL
 #[cfg(target_os = "windows")]
@@ -44,7 +45,7 @@ fn get_device_size(handle: HANDLE) -> Ext4Result<u64> {
         
         if success == 0 {
             let error = GetLastError();
-            eprintln!("DEBUG: IOCTL_DISK_GET_LENGTH_INFO failed with error: {} (0x{:X})", error, error);
+            debug!("IOCTL_DISK_GET_LENGTH_INFO failed with error: {} (0x{:X})", error, error);
             
             // Fallback: Try IOCTL_DISK_GET_DRIVE_GEOMETRY_EX
             use winapi::um::winioctl::IOCTL_DISK_GET_DRIVE_GEOMETRY_EX;
@@ -107,11 +108,11 @@ impl WindowsDeviceIO {
         use std::os::windows::ffi::OsStrExt;
         use std::ffi::OsStr;
         
-        eprintln!("DEBUG: Attempting to open device: {}", device_path);
+        debug!("Attempting to open device: {}", device_path);
         
         // First, cleanup the disk - dismount all volumes on it
         if let Some(drive_number) = crate::ext4_native::windows::get_drive_number_from_path(device_path) {
-            eprintln!("DEBUG: Cleaning up disk {} before format", drive_number);
+            info!("Cleaning up disk {} before format", drive_number);
             crate::ext4_native::windows::cleanup_disk_for_format(drive_number)
                 .map_err(|e| Ext4Error::WindowsError(format!("Disk cleanup failed: {}", e)))?;
         }
@@ -123,7 +124,7 @@ impl WindowsDeviceIO {
         
         unsafe {
             // First, try without NO_BUFFERING to see if it's a permission issue
-            eprintln!("DEBUG: First attempt without FILE_FLAG_NO_BUFFERING");
+            debug!("First attempt without FILE_FLAG_NO_BUFFERING");
             let mut handle = CreateFileW(
                 wide_path.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
@@ -136,10 +137,10 @@ impl WindowsDeviceIO {
             
             if handle.is_null() || handle as isize == -1 {
                 let error1 = GetLastError();
-                eprintln!("DEBUG: First attempt failed with error: {} (0x{:X})", error1, error1);
+                debug!("First attempt failed with error: {} (0x{:X})", error1, error1);
                 
                 // Try with sharing
-                eprintln!("DEBUG: Second attempt with FILE_SHARE_READ | FILE_SHARE_WRITE");
+                debug!("Second attempt with FILE_SHARE_READ | FILE_SHARE_WRITE");
                 handle = CreateFileW(
                     wide_path.as_ptr(),
                     GENERIC_READ | GENERIC_WRITE,
@@ -152,10 +153,10 @@ impl WindowsDeviceIO {
                 
                 if handle.is_null() || handle as isize == -1 {
                     let error2 = GetLastError();
-                    eprintln!("DEBUG: Second attempt failed with error: {} (0x{:X})", error2, error2);
+                    debug!("Second attempt failed with error: {} (0x{:X})", error2, error2);
                     
                     // Final attempt with full flags
-                    eprintln!("DEBUG: Final attempt with FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH");
+                    debug!("Final attempt with FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH");
                     handle = CreateFileW(
                         wide_path.as_ptr(),
                         GENERIC_READ | GENERIC_WRITE,
@@ -168,7 +169,7 @@ impl WindowsDeviceIO {
                     
                     if handle.is_null() || handle as isize == -1 {
                         let error = GetLastError();
-                        eprintln!("DEBUG: All attempts failed. Final error: {} (0x{:X})", error, error);
+                        error!("All attempts failed. Final error: {} (0x{:X})", error, error);
                         
                         // Common error codes
                         let error_msg = match error {
@@ -187,15 +188,15 @@ impl WindowsDeviceIO {
                 }
             }
             
-            eprintln!("DEBUG: Device opened successfully, handle: {:?}", handle);
+            debug!("Device opened successfully, handle: {:?}", handle);
             
             // Get sector size
             let sector_size = crate::ext4_native::core::alignment::get_sector_size(device_path)?;
             
             // Get device size using Windows IOCTL
             let device_size = get_device_size(handle)?;
-            eprintln!("DEBUG: Device size detected: {} bytes ({:.2} GB)", 
-                     device_size, device_size as f64 / (1024.0 * 1024.0 * 1024.0));
+            info!("Device size detected: {} bytes ({:.2} GB)", 
+                  device_size, device_size as f64 / (1024.0 * 1024.0 * 1024.0));
             
             Ok(Self {
                 handle,

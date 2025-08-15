@@ -1992,6 +1992,9 @@ dependencies = [
 name = "moses"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "lazy_static",
+ "libc",
  "log",
  "moses-core",
  "moses-formatters",
@@ -2002,6 +2005,7 @@ dependencies = [
  "tauri-build",
  "tauri-plugin-log",
  "tokio",
+ "windows 0.52.0",
 ]
 
 [[package]]
@@ -2036,6 +2040,7 @@ dependencies = [
  "crc32c",
  "crc32fast",
  "hex",
+ "log",
  "moses-core",
  "nix",
  "serde",

@@ -9,6 +9,7 @@ pub struct FormatOptions {
     pub cluster_size: Option<u32>,
     pub quick_format: bool,
     pub enable_compression: bool,
+    pub verify_after_format: bool,
     pub additional_options: HashMap<String, String>,
 }
 
@@ -20,6 +21,7 @@ impl Default for FormatOptions {
             cluster_size: None,
             quick_format: true,
             enable_compression: false,
+            verify_after_format: false,
             additional_options: HashMap::new(),
         }
     }

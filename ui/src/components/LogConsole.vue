@@ -248,6 +248,9 @@ export default {
   overflow: hidden;
   font-family: 'Consolas', 'Monaco', monospace;
   margin-top: 10px;
+  min-height: 100px;
+  max-height: 500px;
+  resize: vertical;
 }
 
 .console-header {

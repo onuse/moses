@@ -120,12 +120,27 @@ impl Ext4Superblock {
         unsafe { std::mem::zeroed() }
     }
     
+    /// Get block size in bytes
+    pub fn s_block_size(&self) -> u32 {
+        if self.s_log_block_size > 20 {
+            // Invalid, return default
+            4096
+        } else {
+            1024 << self.s_log_block_size
+        }
+    }
+    
+    /// Check if a read-only compatible feature is enabled
+    pub fn has_feature_ro_compat(&self, feature: u32) -> bool {
+        self.s_feature_ro_compat & feature != 0
+    }
+    
     /// Initialize with minimal valid values for a new filesystem
     pub fn init_minimal(&mut self, params: &FilesystemParams, layout: &FilesystemLayout) {
         // Get current time
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs() as u32;
         
         // CRITICAL: Magic number must be exactly this
@@ -250,7 +265,7 @@ impl Ext4Superblock {
         // Simple UUID v4 generation
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_nanos();
         
         // Fill with timestamp-based randomness
@@ -579,7 +594,7 @@ impl Ext4Inode {
     pub fn init_lost_found_dir(&mut self, params: &FilesystemParams) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs() as u32;
         
         self.i_mode = S_IFDIR | 0o700;  // Directory with mode 700
@@ -605,7 +620,7 @@ impl Ext4Inode {
     pub fn init_root_dir(&mut self, params: &FilesystemParams) {
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
+            .unwrap_or_else(|_| std::time::Duration::from_secs(0))
             .as_secs() as u32;
         
         // Directory mode: drwxr-xr-x (755)

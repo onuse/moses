@@ -38,8 +38,18 @@ impl FilesystemFormatter for Ext4NativeFormatter {
         device: &Device,
         options: &FormatOptions,
     ) -> Result<(), MosesError> {
-        // Use the complete implementation
-        crate::ext4_native::core::formatter_impl::format_device(device, options).await
+        // Use the complete implementation with optional verification
+        if options.verify_after_format {
+            use std::sync::Arc;
+            use crate::ext4_native::core::progress::LoggingProgress;
+            crate::ext4_native::core::formatter_impl::format_device_with_verification(
+                device, 
+                options, 
+                Arc::new(LoggingProgress)
+            ).await
+        } else {
+            crate::ext4_native::core::formatter_impl::format_device(device, options).await
+        }
     }
     
     async fn validate_options(&self, options: &FormatOptions) -> Result<(), MosesError> {
@@ -106,6 +116,10 @@ impl FilesystemFormatter for Ext4NativeFormatter {
             warnings.push("⚡ Quick format selected - only metadata will be written".to_string());
         } else {
             warnings.push("🔍 Full format selected - all sectors will be zeroed".to_string());
+        }
+        
+        if options.verify_after_format {
+            warnings.push("✔️ Post-format verification enabled - filesystem will be validated".to_string());
         }
         
         Ok(SimulationReport {

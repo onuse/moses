@@ -131,6 +131,7 @@ async fn main() -> anyhow::Result<()> {
                 quick_format: true,
                 cluster_size: None,
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: std::collections::HashMap::new(),
             };
             
