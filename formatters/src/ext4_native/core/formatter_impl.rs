@@ -222,6 +222,14 @@ pub async fn format_device(
             let inode_bitmap_block = block_offset + 1;
             let inode_table_block = block_offset + 2;
             
+            // Calculate free blocks for this uninitialized group
+            // All blocks are free except metadata blocks
+            let metadata_blocks = layout.metadata_blocks_per_group(group_idx);
+            let free_blocks = layout.blocks_per_group.saturating_sub(metadata_blocks);
+            
+            // Calculate free inodes (all inodes in uninitialized groups are free)
+            let free_inodes = layout.inodes_per_group;
+            
             // Create group descriptor with valid block numbers
             let mut empty_gd = Ext4GroupDesc {
                 bg_block_bitmap_lo: (block_bitmap_block & 0xFFFFFFFF) as u32,
@@ -230,10 +238,10 @@ pub async fn format_device(
                 bg_inode_bitmap_hi: ((inode_bitmap_block >> 32) & 0xFFFFFFFF) as u32,
                 bg_inode_table_lo: (inode_table_block & 0xFFFFFFFF) as u32,
                 bg_inode_table_hi: ((inode_table_block >> 32) & 0xFFFFFFFF) as u32,
-                bg_free_blocks_count_lo: 0,  // No free blocks
-                bg_free_blocks_count_hi: 0,
-                bg_free_inodes_count_lo: 0,  // No free inodes
-                bg_free_inodes_count_hi: 0,
+                bg_free_blocks_count_lo: (free_blocks & 0xFFFF) as u16,
+                bg_free_blocks_count_hi: ((free_blocks >> 16) & 0xFFFF) as u16,
+                bg_free_inodes_count_lo: (free_inodes & 0xFFFF) as u16,
+                bg_free_inodes_count_hi: ((free_inodes >> 16) & 0xFFFF) as u16,
                 bg_used_dirs_count_lo: 0,
                 bg_used_dirs_count_hi: 0,
                 bg_flags: EXT4_BG_INODE_UNINIT | EXT4_BG_BLOCK_UNINIT,  // Mark as uninitialized
