@@ -6,6 +6,7 @@ pub mod checksum;
 pub mod constants;
 pub mod endian;
 pub mod formatter;
+pub mod formatter_impl;
 pub mod structures;
 pub mod types;
 

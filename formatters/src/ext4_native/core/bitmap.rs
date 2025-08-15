@@ -2,7 +2,6 @@
 
 use crate::ext4_native::core::{
     types::*,
-    constants::*,
     alignment::AlignedBuffer,
 };
 

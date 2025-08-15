@@ -13,6 +13,7 @@ pub mod ext4_windows;
 
 // New native ext4 implementation
 pub mod ext4_native;
+pub use ext4_native::Ext4NativeFormatter;
 
 #[cfg(target_os = "windows")]
 pub mod ntfs_windows;

@@ -1,14 +1,7 @@
 // Main ext4 formatter implementation
-// Phase 1: Writing a valid superblock
+// Complete ext4 filesystem with root directory and lost+found
 
 use moses_core::{Device, FilesystemFormatter, FormatOptions, MosesError, Platform, SimulationReport};
-use crate::ext4_native::core::{
-    structures::Ext4Superblock,
-    types::{FilesystemParams, FilesystemLayout},
-    alignment::AlignedBuffer,
-};
-use std::fs::File;
-use std::io::Write;
 
 pub struct Ext4NativeFormatter;
 
@@ -19,12 +12,17 @@ impl FilesystemFormatter for Ext4NativeFormatter {
     }
     
     fn supported_platforms(&self) -> Vec<Platform> {
-        vec![Platform::Windows]
+        vec![Platform::Windows, Platform::Linux, Platform::MacOS]
     }
     
     fn can_format(&self, device: &Device) -> bool {
-        // Only format removable devices for safety
-        !device.is_system && device.is_removable
+        // Never format system drives
+        if device.is_system {
+            return false;
+        }
+        
+        // Only format removable devices for extra safety
+        device.is_removable
     }
     
     fn requires_external_tools(&self) -> bool {
@@ -40,58 +38,8 @@ impl FilesystemFormatter for Ext4NativeFormatter {
         device: &Device,
         options: &FormatOptions,
     ) -> Result<(), MosesError> {
-        // Phase 1: Write a valid superblock
-        
-        // Convert options to filesystem parameters
-        let params = FilesystemParams {
-            size_bytes: device.size,
-            block_size: options.cluster_size.unwrap_or(4096) as u32,
-            inode_size: 256,
-            label: options.label.clone(),
-            reserved_percent: 5,
-            enable_checksums: true,
-            enable_64bit: device.size > 16 * 1024 * 1024 * 1024, // >16GB
-            enable_journal: false, // Phase 1: No journal yet
-        };
-        
-        // Calculate filesystem layout
-        let layout = FilesystemLayout::from_params(&params)
-            .map_err(|e| MosesError::Other(e.to_string()))?;
-        
-        // Create and initialize superblock
-        let mut superblock = Ext4Superblock::new();
-        superblock.init_minimal(&params, &layout);
-        superblock.update_checksum();
-        
-        // Validate the superblock before writing
-        superblock.validate()
-            .map_err(|e| MosesError::Other(format!("Superblock validation failed: {}", e)))?;
-        
-        // For Phase 1: Write to a test image file instead of actual device
-        // This allows us to safely test with dumpe2fs
-        let test_path = format!("{}_phase1.img", device.id);
-        
-        // Create minimal image (just first 8KB containing superblock)
-        let mut buffer = AlignedBuffer::<8192>::new();
-        
-        // Write superblock at offset 1024
-        superblock.write_to_buffer(&mut buffer[1024..2048])
-            .map_err(|e| MosesError::Other(format!("Failed to serialize superblock: {}", e)))?;
-        
-        // Write to file
-        let mut file = File::create(&test_path)
-            .map_err(|e| MosesError::Other(format!("Failed to create image: {}", e)))?;
-        
-        file.write_all(&buffer[..])
-            .map_err(|e| MosesError::Other(format!("Failed to write image: {}", e)))?;
-        
-        file.sync_all()
-            .map_err(|e| MosesError::Other(format!("Failed to sync image: {}", e)))?;
-        
-        println!("Phase 1: Superblock written to {}", test_path);
-        println!("Validate with: dumpe2fs {} 2>/dev/null | head -50", test_path);
-        
-        Ok(())
+        // Use the complete implementation
+        crate::ext4_native::core::formatter_impl::format_device(device, options).await
     }
     
     async fn validate_options(&self, options: &FormatOptions) -> Result<(), MosesError> {

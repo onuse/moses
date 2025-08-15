@@ -15,7 +15,7 @@ use crate::exfat::ExFatFormatter;
 use crate::ext4::Ext4Formatter;
 
 #[cfg(target_os = "windows")]
-use crate::ext4_windows::Ext4WindowsFormatter;
+use crate::ext4_native::Ext4NativeFormatter;
 #[cfg(target_os = "windows")]
 use crate::ntfs_windows::NtfsWindowsFormatter;
 #[cfg(target_os = "linux")]
@@ -29,7 +29,7 @@ pub fn register_builtin_formatters(registry: &mut FormatterRegistry) -> Result<(
     {
         registry.register(
             "ext4".to_string(),
-            Arc::new(Ext4WindowsFormatter) as Arc<dyn FilesystemFormatter>,
+            Arc::new(Ext4NativeFormatter) as Arc<dyn FilesystemFormatter>,
             FormatterMetadataBuilder::new("ext4")
                 .description("Fourth Extended Filesystem - Primary Linux filesystem")
                 .aliases(vec!["ext", "linux"])
