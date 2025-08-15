@@ -91,22 +91,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b0674a1ddeecb70197781e945de4b3b8ffb61fa939a5597bcf48503737663100"
 
 [[package]]
-name = "app"
-version = "0.1.0"
-dependencies = [
- "log",
- "moses-core",
- "moses-formatters",
- "moses-platform",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-log",
- "tokio",
-]
-
-[[package]]
 name = "arrayvec"
 version = "0.7.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -557,6 +541,15 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "59ed5838eebb26a2bb2e58f6d5b5316989ae9d08bab10e0e6d103e656d1b0280"
 dependencies = [
  "libc",
+]
+
+[[package]]
+name = "crc32c"
+version = "0.6.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3a47af21622d091a8f0fb295b88bc886ac74efcc613efc19f5d0b21de5c89e47"
+dependencies = [
+ "rustc_version",
 ]
 
 [[package]]
@@ -1996,6 +1989,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "moses"
+version = "0.1.0"
+dependencies = [
+ "log",
+ "moses-core",
+ "moses-formatters",
+ "moses-platform",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-log",
+ "tokio",
+]
+
+[[package]]
 name = "moses-core"
 version = "0.1.0"
 dependencies = [
@@ -2023,11 +2032,17 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "byteorder",
+ "crc32c",
+ "crc32fast",
+ "hex",
  "moses-core",
  "nix",
  "serde",
+ "static_assertions",
  "tokio",
  "which",
+ "winapi",
 ]
 
 [[package]]
@@ -3474,6 +3489,12 @@ name = "stable_deref_trait"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a8f112729512f8e442d81f95a8a7ddf2b7c6b8a1a6f509a95864142b30cab2d3"
+
+[[package]]
+name = "static_assertions"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "string_cache"

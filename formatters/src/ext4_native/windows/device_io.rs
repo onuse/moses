@@ -18,7 +18,7 @@ use std::ptr::null_mut;
 pub struct WindowsDeviceIO {
     handle: HANDLE,
     sector_size: u32,
-    device_size: u64,
+    _device_size: u64,  // Stored for future validation use
 }
 
 #[cfg(target_os = "windows")]
@@ -28,29 +28,87 @@ impl WindowsDeviceIO {
         use std::os::windows::ffi::OsStrExt;
         use std::ffi::OsStr;
         
+        eprintln!("DEBUG: Attempting to open device: {}", device_path);
+        
+        // First, cleanup the disk - dismount all volumes on it
+        if let Some(drive_number) = crate::ext4_native::windows::get_drive_number_from_path(device_path) {
+            eprintln!("DEBUG: Cleaning up disk {} before format", drive_number);
+            crate::ext4_native::windows::cleanup_disk_for_format(drive_number)
+                .map_err(|e| Ext4Error::WindowsError(format!("Disk cleanup failed: {}", e)))?;
+        }
+        
         let wide_path: Vec<u16> = OsStr::new(device_path)
             .encode_wide()
             .chain(std::iter::once(0))
             .collect();
         
         unsafe {
-            // Open with required flags for direct I/O
-            let handle = CreateFileW(
+            // First, try without NO_BUFFERING to see if it's a permission issue
+            eprintln!("DEBUG: First attempt without FILE_FLAG_NO_BUFFERING");
+            let mut handle = CreateFileW(
                 wide_path.as_ptr(),
                 GENERIC_READ | GENERIC_WRITE,
-                FILE_SHARE_READ | FILE_SHARE_WRITE,
+                0, // No sharing first
                 null_mut(),
                 OPEN_EXISTING,
-                FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH,
+                0, // No special flags
                 null_mut(),
             );
             
             if handle.is_null() || handle as isize == -1 {
-                let error = GetLastError();
-                return Err(Ext4Error::WindowsError(
-                    format!("Failed to open device: error code {}", error)
-                ));
+                let error1 = GetLastError();
+                eprintln!("DEBUG: First attempt failed with error: {} (0x{:X})", error1, error1);
+                
+                // Try with sharing
+                eprintln!("DEBUG: Second attempt with FILE_SHARE_READ | FILE_SHARE_WRITE");
+                handle = CreateFileW(
+                    wide_path.as_ptr(),
+                    GENERIC_READ | GENERIC_WRITE,
+                    FILE_SHARE_READ | FILE_SHARE_WRITE,
+                    null_mut(),
+                    OPEN_EXISTING,
+                    0,
+                    null_mut(),
+                );
+                
+                if handle.is_null() || handle as isize == -1 {
+                    let error2 = GetLastError();
+                    eprintln!("DEBUG: Second attempt failed with error: {} (0x{:X})", error2, error2);
+                    
+                    // Final attempt with full flags
+                    eprintln!("DEBUG: Final attempt with FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH");
+                    handle = CreateFileW(
+                        wide_path.as_ptr(),
+                        GENERIC_READ | GENERIC_WRITE,
+                        FILE_SHARE_READ | FILE_SHARE_WRITE,
+                        null_mut(),
+                        OPEN_EXISTING,
+                        FILE_FLAG_NO_BUFFERING | FILE_FLAG_WRITE_THROUGH,
+                        null_mut(),
+                    );
+                    
+                    if handle.is_null() || handle as isize == -1 {
+                        let error = GetLastError();
+                        eprintln!("DEBUG: All attempts failed. Final error: {} (0x{:X})", error, error);
+                        
+                        // Common error codes
+                        let error_msg = match error {
+                            5 => "Access denied - ensure running as administrator and device is not in use",
+                            2 => "Device not found - check device path format",
+                            32 => "Device is in use by another process",
+                            87 => "Invalid parameter - check device path format",
+                            _ => "Unknown error"
+                        };
+                        
+                        return Err(Ext4Error::WindowsError(
+                            format!("Failed to open device '{}': {} (error code {})", 
+                                    device_path, error_msg, error)
+                        ));
+                    }
+                }
             }
+            
+            eprintln!("DEBUG: Device opened successfully, handle: {:?}", handle);
             
             // Get sector size
             let sector_size = crate::ext4_native::core::alignment::get_sector_size(device_path)?;
@@ -61,7 +119,7 @@ impl WindowsDeviceIO {
             Ok(Self {
                 handle,
                 sector_size,
-                device_size,
+                _device_size: device_size,
             })
         }
     }
@@ -75,8 +133,8 @@ impl WindowsDeviceIO {
             ));
         }
         
-        // Calculate aligned size
-        let aligned_size = crate::ext4_native::core::alignment::align_up(
+        // Calculate aligned size (not currently used, but may be needed for future optimizations)
+        let _aligned_size = crate::ext4_native::core::alignment::align_up(
             data.len(), 
             self.sector_size as usize
         );
@@ -104,11 +162,15 @@ impl WindowsDeviceIO {
             
             // Seek to position
             unsafe {
-                let mut new_pos = 0i64;
+                use winapi::um::winnt::LARGE_INTEGER;
+                
+                let mut distance: LARGE_INTEGER = std::mem::zeroed();
+                *distance.QuadPart_mut() = (offset + written as u64) as i64;
+                
                 let success = SetFilePointerEx(
                     self.handle,
-                    (offset + written as u64) as i64,
-                    &mut new_pos,
+                    distance,
+                    null_mut(),
                     FILE_BEGIN,
                 );
                 

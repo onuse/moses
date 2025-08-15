@@ -241,9 +241,8 @@ npm run tauri dev
 
 #### Windows
 ```powershell
-# Test WSL2 integration
-wsl --status
-powershell -ExecutionPolicy Bypass -File check_ext4_ready.ps1
+# Test native EXT4 formatter
+cargo test --package moses-formatters --test ext4_native_tests
 ```
 
 #### Linux

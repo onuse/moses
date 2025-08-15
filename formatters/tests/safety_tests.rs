@@ -243,12 +243,12 @@ mod safety_tests {
 
     #[cfg(target_os = "windows")]
     #[tokio::test]
-    async fn test_windows_ext4_wsl_safety() {
-        use moses_formatters::Ext4WindowsFormatter;
+    async fn test_windows_ext4_native_safety() {
+        use moses_formatters::Ext4NativeFormatter;
         
-        let formatter = Ext4WindowsFormatter;
+        let formatter = Ext4NativeFormatter;
         
-        // Should not format system drive even through WSL
+        // Should not format system drive with native implementation
         let system_drive = create_system_drive();
         assert!(!formatter.can_format(&system_drive),
             "CRITICAL: Windows EXT4 formatter allows system drive!");
@@ -258,16 +258,14 @@ mod safety_tests {
         assert!(formatter.can_format(&safe_usb),
             "Windows EXT4 formatter rejects safe USB!");
         
-        // Test dry run includes WSL warnings
+        // Test dry run with native implementation
         let options = create_format_options();
         let result = formatter.dry_run(&safe_usb, &options).await;
         
         if let Ok(report) = result {
-            // Should mention WSL2 in warnings or required tools
-            let mentions_wsl = report.warnings.iter().any(|w| w.contains("WSL"))
-                || report.required_tools.iter().any(|t| t.contains("WSL"));
-            assert!(mentions_wsl,
-                "Windows EXT4 formatter doesn't mention WSL2 requirement!");
+            // Native implementation should not require external tools
+            assert!(report.required_tools.is_empty() || !report.required_tools.iter().any(|t| t.contains("WSL")),
+                "Native EXT4 formatter should not require WSL!");
         }
     }
 }

@@ -395,7 +395,7 @@ const labelHint = computed(() => {
     case 'fat32': return 'FAT32: Maximum 11 characters, uppercase only'
     case 'exfat': return 'exFAT: Maximum 15 characters'
     case 'ntfs': return 'NTFS: Maximum 32 characters'
-    case 'ext4': return 'EXT4: Maximum 16 characters, Linux filesystem'
+    case 'ext4': return 'EXT4: Maximum 16 characters, native support'
     default: return 'Select a filesystem to see label requirements'
   }
 })

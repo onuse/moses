@@ -55,6 +55,12 @@ impl From<std::io::Error> for Ext4Error {
     }
 }
 
+impl From<String> for Ext4Error {
+    fn from(error: String) -> Self {
+        Ext4Error::Io(error)
+    }
+}
+
 /// Block number type (64-bit for ext4)
 pub type BlockNumber = u64;
 

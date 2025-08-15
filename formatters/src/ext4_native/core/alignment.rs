@@ -115,8 +115,9 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
     use winapi::um::fileapi::{CreateFileW, OPEN_EXISTING};
     use winapi::um::winioctl::IOCTL_DISK_GET_DRIVE_GEOMETRY;
     use winapi::um::ioapiset::DeviceIoControl;
-    use winapi::um::handleapi::CloseHandle;
+    use winapi::um::handleapi::{CloseHandle, INVALID_HANDLE_VALUE};
     use winapi::um::winnt::{GENERIC_READ, FILE_SHARE_READ, FILE_SHARE_WRITE};
+    use winapi::um::errhandlingapi::GetLastError;
     use std::ptr::null_mut;
     use std::os::windows::ffi::OsStrExt;
     use std::ffi::OsStr;
@@ -129,6 +130,8 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
         sectors_per_track: u32,
         bytes_per_sector: u32,
     }
+
+    eprintln!("DEBUG: Getting sector size for device: {}", device_path);
 
     unsafe {
         let wide_path: Vec<u16> = OsStr::new(device_path)
@@ -146,8 +149,13 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
             null_mut(),
         );
 
-        if handle.is_null() {
-            return Err("Failed to open device".to_string());
+        if handle == INVALID_HANDLE_VALUE || handle.is_null() {
+            let error = GetLastError();
+            eprintln!("DEBUG: Failed to open device for geometry. Error: {} (0x{:X})", error, error);
+            
+            // If we can't get the geometry, default to 512 bytes which is standard
+            eprintln!("DEBUG: Defaulting to 512 byte sector size");
+            return Ok(512);
         }
 
         let mut geometry = mem::zeroed::<DiskGeometry>();
@@ -167,9 +175,13 @@ pub fn get_sector_size(device_path: &str) -> Result<u32, String> {
         CloseHandle(handle);
 
         if success == 0 {
-            return Err("Failed to get disk geometry".to_string());
+            let error = GetLastError();
+            eprintln!("DEBUG: DeviceIoControl failed. Error: {} (0x{:X})", error, error);
+            eprintln!("DEBUG: Defaulting to 512 byte sector size");
+            return Ok(512); // Default to 512 bytes
         }
 
+        eprintln!("DEBUG: Got sector size: {} bytes", geometry.bytes_per_sector);
         Ok(geometry.bytes_per_sector)
     }
 }

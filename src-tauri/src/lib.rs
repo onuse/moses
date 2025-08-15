@@ -7,7 +7,7 @@ use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
 use moses_formatters::Ext4LinuxFormatter;
 
 #[cfg(target_os = "windows")]
-use moses_formatters::Ext4WindowsFormatter;
+use moses_formatters::Ext4NativeFormatter;
 
 #[tauri::command]
 async fn enumerate_devices() -> Result<Vec<Device>, String> {
@@ -35,7 +35,7 @@ async fn simulate_format(
             
             #[cfg(target_os = "windows")]
             {
-                let formatter = Ext4WindowsFormatter;
+                let formatter = Ext4NativeFormatter;
                 formatter.dry_run(&device, &options)
                     .await
                     .map_err(|e| format!("Simulation failed: {}", e))
@@ -123,7 +123,7 @@ async fn execute_format(
             
             #[cfg(target_os = "windows")]
             {
-                let formatter = Ext4WindowsFormatter;
+                let formatter = Ext4NativeFormatter;
                 
                 // Validate options
                 formatter.validate_options(&options)
@@ -140,7 +140,7 @@ async fn execute_format(
                     .await
                     .map_err(|e| format!("Format failed: {}", e))?;
                 
-                Ok(format!("Successfully formatted {} as EXT4 via WSL2", device.name))
+                Ok(format!("Successfully formatted {} as EXT4", device.name))
             }
             
             #[cfg(target_os = "macos")]
@@ -234,20 +234,13 @@ async fn execute_format(
 #[tauri::command]
 async fn check_formatter_requirements(filesystem_type: String) -> Result<Vec<String>, String> {
     // Check what tools are required for each filesystem
-    let mut missing_tools = Vec::new();
+    let missing_tools = Vec::new();
     
     match filesystem_type.as_str() {
         "ext4" => {
             #[cfg(target_os = "windows")]
             {
-                // Check for WSL2
-                let output = std::process::Command::new("wsl")
-                    .arg("--list")
-                    .output();
-                
-                if output.is_err() || !output.unwrap().status.success() {
-                    missing_tools.push("WSL2 (Windows Subsystem for Linux)".to_string());
-                }
+                // Native ext4 support - no external tools required
             }
             
             #[cfg(target_os = "linux")]

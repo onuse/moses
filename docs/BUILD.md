@@ -50,12 +50,7 @@ All platforms need:
    # If not found, download from Microsoft
    ```
 
-5. **WSL2** (Required for EXT4 formatting)
-   ```powershell
-   # Run as Administrator:
-   wsl --install
-   # Restart computer after installation
-   ```
+5. **Note:** EXT4 formatting is now natively supported on Windows - no additional tools required!
 
 ### Build Commands
 

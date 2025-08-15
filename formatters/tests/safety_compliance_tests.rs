@@ -136,7 +136,7 @@ test_formatter_safety!(moses_formatters::Fat32Formatter, fat32_safety);
 test_formatter_safety!(moses_formatters::ExFatFormatter, exfat_safety);
 
 #[cfg(target_os = "windows")]
-test_formatter_safety!(moses_formatters::Ext4WindowsFormatter, ext4_windows_safety);
+test_formatter_safety!(moses_formatters::Ext4NativeFormatter, ext4_windows_safety);
 
 #[cfg(target_os = "windows")]
 test_formatter_safety!(moses_formatters::NtfsWindowsFormatter, ntfs_windows_safety);

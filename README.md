@@ -3,12 +3,12 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/moses/ci.yml?branch=main)](https://github.com/yourusername/moses/actions)
 
-Moses makes it easy to format drives with any filesystem on Windows, macOS, and Linux - including **EXT4 on Windows**!
+Moses makes it easy to format drives with any filesystem on Windows, macOS, and Linux - with native support for all major filesystems!
 
 ## ✨ Key Features
 
 - 🖥️ **Cross-Platform** - Windows, macOS, and Linux
-- 🎯 **EXT4 on Windows** - Via WSL2 integration  
+- 🎯 **Native EXT4 Support** - Pure Rust implementation, no dependencies  
 - 🛡️ **Safe** - Multiple safety checks and dry-run mode
 - ⚡ **Fast** - Quick format options with progress tracking
 - 🎨 **GUI & CLI** - Choose your preferred interface
@@ -37,25 +37,33 @@ See [docs/BUILD.md](docs/BUILD.md) for detailed build instructions.
 
 ## 🎮 Usage
 
-### GUI
-```bash
-moses
+> **⚠️ Important:** Moses requires administrator/root privileges to format drives.
+
+### Windows
+```batch
+# Run with admin privileges (double-click or from cmd)
+run-as-admin.bat
+
+# Or right-click moses.exe and select "Run as administrator"
 ```
 
-### CLI
+### Linux/macOS
 ```bash
+# Run with sudo
+sudo moses
+
 # List all drives
-moses list
+sudo moses list
 
 # Format USB as EXT4
-moses format "USB Drive" ext4
+sudo moses format "USB Drive" ext4
 ```
 
 ## 📊 Supported Filesystems
 
 | Filesystem | Windows | macOS | Linux |
 |------------|---------|-------|-------|
-| EXT4       | ✅ (WSL2) | ✅ | ✅ |
+| EXT4       | ✅ | ✅ | ✅ |
 | NTFS       | ✅ | ✅ | ✅ |
 | FAT32      | ✅ | ✅ | ✅ |
 | exFAT      | ✅ | ✅ | ✅ |

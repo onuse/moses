@@ -8,8 +8,12 @@ use crate::ext4_native::core::{
     bitmap::{Bitmap, init_block_bitmap_group0, init_inode_bitmap_group0},
     constants::*,
 };
-use std::fs::{File, OpenOptions};
+#[cfg(not(target_os = "windows"))]
+use std::fs::OpenOptions;
+#[cfg(not(target_os = "windows"))]
 use std::io::{Write, Seek, SeekFrom};
+#[cfg(target_os = "windows")]
+use crate::ext4_native::windows::WindowsDeviceIO;
 
 /// Write complete ext4 filesystem to device
 pub async fn format_device(
@@ -108,28 +112,58 @@ pub async fn format_device(
     
     // Open device for writing
     #[cfg(target_os = "windows")]
-    let device_path = format!(r"\\.\{}", device.id);
+    let device_path = if device.id.starts_with(r"\\.\") {
+        device.id.clone()
+    } else {
+        format!(r"\\.\{}", device.id)
+    };
     #[cfg(not(target_os = "windows"))]
     let device_path = format!("/dev/{}", device.id);
     
+    eprintln!("DEBUG: Formatting device - ID: '{}', Path: '{}'", device.id, device_path);
+    
+    #[cfg(target_os = "windows")]
+    let mut device_io = WindowsDeviceIO::open(&device_path)
+        .map_err(|e| MosesError::Other(format!("Failed to open device {}: {:?}", device_path, e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
     let mut file = OpenOptions::new()
         .write(true)
         .open(&device_path)
         .map_err(|e| MosesError::Other(format!("Failed to open device {}: {}", device_path, e)))?;
     
-    // Write zeros for entire device (or at least the first part)
-    let zeros = vec![0u8; 1024 * 1024];
-    let mut written = 0u64;
-    let write_size = device.size.min(100 * 1024 * 1024); // Write at least 100MB
-    while written < write_size {
-        let to_write = ((write_size - written) as usize).min(zeros.len());
-        file.write_all(&zeros[..to_write])
-            .map_err(|e| MosesError::Other(format!("Failed to zero device: {}", e)))?;
-        written += to_write as u64;
+    // Write zeros for initial part of device
+    #[cfg(target_os = "windows")]
+    {
+        let sector_size = 512;
+        let zeros_size = ((1024 * 1024) / sector_size) * sector_size;
+        let zeros = vec![0u8; zeros_size];
+        let mut written = 0u64;
+        let write_size = device.size.min(100 * 1024 * 1024);
+        let aligned_write_size = (write_size / sector_size as u64) * sector_size as u64;
+        
+        while written < aligned_write_size {
+            let to_write = ((aligned_write_size - written) as usize).min(zeros.len());
+            device_io.write_aligned(written, &zeros[..to_write])
+                .map_err(|e| MosesError::Other(format!("Failed to zero device: {:?}", e)))?;
+            written += to_write as u64;
+        }
     }
     
-    file.seek(SeekFrom::Start(0))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        let zeros = vec![0u8; 1024 * 1024];
+        let mut written = 0u64;
+        let write_size = device.size.min(100 * 1024 * 1024);
+        while written < write_size {
+            let to_write = ((write_size - written) as usize).min(zeros.len());
+            file.write_all(&zeros[..to_write])
+                .map_err(|e| MosesError::Other(format!("Failed to zero device: {}", e)))?;
+            written += to_write as u64;
+        }
+        file.seek(SeekFrom::Start(0))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+    }
     
     // Write all filesystem structures
     let mut current_block = 0u64;
@@ -138,10 +172,18 @@ pub async fn format_device(
     let mut sb_buffer = AlignedBuffer::<4096>::new();
     sb.write_to_buffer(&mut sb_buffer[1024..2048])
         .map_err(|e| MosesError::Other(format!("Failed to serialize superblock: {}", e)))?;
-    file.seek(SeekFrom::Start(current_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&sb_buffer[..])
-        .map_err(|e| MosesError::Other(format!("Failed to write superblock: {}", e)))?;
+    
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(current_block * 4096, &sb_buffer[..])
+        .map_err(|e| MosesError::Other(format!("Failed to write superblock: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(current_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&sb_buffer[..])
+            .map_err(|e| MosesError::Other(format!("Failed to write superblock: {}", e)))?;
+    }
     current_block += 1;
     
     // Block 1: Group descriptor table
@@ -153,10 +195,18 @@ pub async fn format_device(
         )
     };
     gdt_buffer[..64].copy_from_slice(gd_bytes);
-    file.seek(SeekFrom::Start(current_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&gdt_buffer[..])
-        .map_err(|e| MosesError::Other(format!("Failed to write GDT: {}", e)))?;
+    
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(current_block * 4096, &gdt_buffer[..])
+        .map_err(|e| MosesError::Other(format!("Failed to write GDT: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(current_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&gdt_buffer[..])
+            .map_err(|e| MosesError::Other(format!("Failed to write GDT: {}", e)))?;
+    }
     current_block += 1;
     
     // Skip reserved GDT blocks
@@ -166,20 +216,36 @@ pub async fn format_device(
     let mut bitmap_buffer = AlignedBuffer::<4096>::new();
     block_bitmap.write_to_buffer(&mut bitmap_buffer)
         .map_err(|e| MosesError::Other(format!("Failed to prepare block bitmap: {}", e)))?;
-    file.seek(SeekFrom::Start(current_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&bitmap_buffer[..])
-        .map_err(|e| MosesError::Other(format!("Failed to write block bitmap: {}", e)))?;
+    
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(current_block * 4096, &bitmap_buffer[..])
+        .map_err(|e| MosesError::Other(format!("Failed to write block bitmap: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(current_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&bitmap_buffer[..])
+            .map_err(|e| MosesError::Other(format!("Failed to write block bitmap: {}", e)))?;
+    }
     current_block += 1;
     
     // Inode bitmap
     let mut inode_bitmap_buffer = AlignedBuffer::<4096>::new();
     inode_bitmap.write_to_buffer(&mut inode_bitmap_buffer)
         .map_err(|e| MosesError::Other(format!("Failed to prepare inode bitmap: {}", e)))?;
-    file.seek(SeekFrom::Start(current_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&inode_bitmap_buffer[..])
-        .map_err(|e| MosesError::Other(format!("Failed to write inode bitmap: {}", e)))?;
+    
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(current_block * 4096, &inode_bitmap_buffer[..])
+        .map_err(|e| MosesError::Other(format!("Failed to write inode bitmap: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(current_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&inode_bitmap_buffer[..])
+            .map_err(|e| MosesError::Other(format!("Failed to write inode bitmap: {}", e)))?;
+    }
     current_block += 1;
     
     // Inode table
@@ -206,23 +272,59 @@ pub async fn format_device(
     };
     inode_table_buffer[lf_inode_offset..lf_inode_offset + 256].copy_from_slice(lf_inode_bytes);
     
-    file.seek(SeekFrom::Start(current_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&inode_table_buffer)
-        .map_err(|e| MosesError::Other(format!("Failed to write inode table: {}", e)))?;
+    // Write inode table
+    #[cfg(target_os = "windows")]
+    {
+        // Ensure inode table buffer is aligned to sector size
+        let sector_size = 512;
+        let aligned_size = ((inode_table_buffer.len() + sector_size - 1) / sector_size) * sector_size;
+        if inode_table_buffer.len() < aligned_size {
+            inode_table_buffer.resize(aligned_size, 0);
+        }
+        device_io.write_aligned(current_block * 4096, &inode_table_buffer)
+            .map_err(|e| MosesError::Other(format!("Failed to write inode table: {:?}", e)))?;
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(current_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&inode_table_buffer)
+            .map_err(|e| MosesError::Other(format!("Failed to write inode table: {}", e)))?;
+    }
     
     // Write root directory data at its allocated block
-    file.seek(SeekFrom::Start(dir_data_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&dir_data)
-        .map_err(|e| MosesError::Other(format!("Failed to write root directory: {}", e)))?;
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(dir_data_block * 4096, &dir_data)
+        .map_err(|e| MosesError::Other(format!("Failed to write root directory: {:?}", e)))?;
     
-    // Write lost+found directory data at its allocated block  
-    file.seek(SeekFrom::Start(lf_data_block * 4096))
-        .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-    file.write_all(&lf_data)
-        .map_err(|e| MosesError::Other(format!("Failed to write lost+found: {}", e)))?;
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(dir_data_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&dir_data)
+            .map_err(|e| MosesError::Other(format!("Failed to write root directory: {}", e)))?;
+    }
     
+    // Write lost+found directory data at its allocated block
+    #[cfg(target_os = "windows")]
+    device_io.write_aligned(lf_data_block * 4096, &lf_data)
+        .map_err(|e| MosesError::Other(format!("Failed to write lost+found: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        file.seek(SeekFrom::Start(lf_data_block * 4096))
+            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+        file.write_all(&lf_data)
+            .map_err(|e| MosesError::Other(format!("Failed to write lost+found: {}", e)))?;
+    }
+    
+    // Flush to disk
+    #[cfg(target_os = "windows")]
+    device_io.flush()
+        .map_err(|e| MosesError::Other(format!("Failed to flush: {:?}", e)))?;
+    
+    #[cfg(not(target_os = "windows"))]
     file.sync_all()
         .map_err(|e| MosesError::Other(format!("Failed to sync device: {}", e)))?;
     

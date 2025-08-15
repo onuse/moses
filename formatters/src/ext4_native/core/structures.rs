@@ -659,7 +659,7 @@ impl Ext4Inode {
     }
     
     /// Calculate inode checksum
-    pub fn update_checksum(&mut self, inode_num: u32, sb: &Ext4Superblock) {
+    pub fn update_checksum(&mut self, _inode_num: u32, sb: &Ext4Superblock) {
         if sb.s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM == 0 {
             return;
         }

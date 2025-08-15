@@ -42,13 +42,8 @@ impl FilesystemFormatter for SafeExt4Formatter {
     }
     
     fn bundled_tools(&self) -> Vec<&'static str> {
-        if cfg!(target_os = "windows") {
-            vec!["wsl", "mkfs.ext4"]
-        } else if cfg!(target_os = "macos") {
-            vec!["e2fsprogs"]
-        } else {
-            vec![]
-        }
+        // Native implementation - no external tools required
+        vec![]
     }
     
     async fn format(
@@ -148,10 +143,7 @@ impl FilesystemFormatter for SafeExt4Formatter {
             warnings.push(format!("⚠️ Risk Level: {:?}", risk));
         }
         
-        // Add specific warnings for ext4
-        if cfg!(target_os = "windows") {
-            warnings.push("Note: EXT4 on Windows requires WSL2".to_string());
-        }
+        // Native ext4 implementation - no special warnings needed
         
         Ok(SimulationReport {
             device: device.clone(),

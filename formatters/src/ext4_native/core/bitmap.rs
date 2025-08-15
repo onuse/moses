@@ -150,7 +150,7 @@ pub fn init_block_bitmap_group0(
     // Inode table
     let inode_table_blocks = layout.inode_table_blocks();
     bitmap.set_range(current_block, inode_table_blocks);
-    current_block += inode_table_blocks;
+    // Note: current_block is not used after this, but keeping for clarity
     
     // Mark blocks beyond the filesystem size as used
     // This is required for proper padding in incomplete block groups
