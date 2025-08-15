@@ -124,6 +124,11 @@ pub const EXT4_FT_FIFO: u8 = 5;
 pub const EXT4_FT_SOCK: u8 = 6;
 pub const EXT4_FT_SYMLINK: u8 = 7;
 
+// Block group flags
+pub const EXT4_BG_INODE_UNINIT: u16 = 0x0001;  // Inode table/bitmap not initialized
+pub const EXT4_BG_BLOCK_UNINIT: u16 = 0x0002;  // Block bitmap not initialized
+pub const EXT4_BG_INODE_ZEROED: u16 = 0x0004;  // Inode table zeroed
+
 // Inode mode bits
 pub const S_IFMT: u16 = 0xF000;   // Format mask
 pub const S_IFSOCK: u16 = 0xC000; // Socket

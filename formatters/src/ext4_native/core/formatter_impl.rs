@@ -186,8 +186,11 @@ pub async fn format_device(
     }
     current_block += 1;
     
-    // Block 1: Group descriptor table
-    let mut gdt_buffer = AlignedBuffer::<4096>::new();
+    // Block 1+: Group descriptor table
+    // We need to write descriptors for ALL groups, not just group 0
+    let mut gdt_buffer = vec![0u8; layout.gdt_blocks as usize * 4096];
+    
+    // Write group 0 descriptor
     let gd_bytes = unsafe {
         std::slice::from_raw_parts(
             &gd as *const _ as *const u8,
@@ -196,18 +199,88 @@ pub async fn format_device(
     };
     gdt_buffer[..64].copy_from_slice(gd_bytes);
     
-    #[cfg(target_os = "windows")]
-    device_io.write_aligned(current_block * 4096, &gdt_buffer[..])
-        .map_err(|e| MosesError::Other(format!("Failed to write GDT: {:?}", e)))?;
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        file.seek(SeekFrom::Start(current_block * 4096))
-            .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
-        file.write_all(&gdt_buffer[..])
-            .map_err(|e| MosesError::Other(format!("Failed to write GDT: {}", e)))?;
+    // Initialize empty descriptors for remaining groups
+    // IMPORTANT: Must set valid block numbers even for unused groups!
+    // Linux always validates these, regardless of UNINIT flags
+    for group_idx in 1..layout.num_groups {
+        let offset = group_idx as usize * 64;
+        if offset + 64 <= gdt_buffer.len() {
+            // Calculate where this group's metadata would be
+            let group_first_block = group_idx as u64 * layout.blocks_per_group as u64;
+            
+            // For simplicity, put metadata at the start of each group
+            // (In reality, only certain groups have backup superblocks)
+            let mut block_offset = group_first_block;
+            
+            // Skip superblock backup if this group has one
+            if layout.has_superblock(group_idx) {
+                block_offset += 1;  // Skip superblock
+                block_offset += layout.gdt_blocks as u64;  // Skip GDT blocks
+            }
+            
+            let block_bitmap_block = block_offset;
+            let inode_bitmap_block = block_offset + 1;
+            let inode_table_block = block_offset + 2;
+            
+            // Create group descriptor with valid block numbers
+            let mut empty_gd = Ext4GroupDesc {
+                bg_block_bitmap_lo: (block_bitmap_block & 0xFFFFFFFF) as u32,
+                bg_block_bitmap_hi: ((block_bitmap_block >> 32) & 0xFFFFFFFF) as u32,
+                bg_inode_bitmap_lo: (inode_bitmap_block & 0xFFFFFFFF) as u32,
+                bg_inode_bitmap_hi: ((inode_bitmap_block >> 32) & 0xFFFFFFFF) as u32,
+                bg_inode_table_lo: (inode_table_block & 0xFFFFFFFF) as u32,
+                bg_inode_table_hi: ((inode_table_block >> 32) & 0xFFFFFFFF) as u32,
+                bg_free_blocks_count_lo: 0,  // No free blocks
+                bg_free_blocks_count_hi: 0,
+                bg_free_inodes_count_lo: 0,  // No free inodes
+                bg_free_inodes_count_hi: 0,
+                bg_used_dirs_count_lo: 0,
+                bg_used_dirs_count_hi: 0,
+                bg_flags: EXT4_BG_INODE_UNINIT | EXT4_BG_BLOCK_UNINIT,  // Mark as uninitialized
+                bg_exclude_bitmap_lo: 0,
+                bg_exclude_bitmap_hi: 0,
+                bg_block_bitmap_csum_lo: 0,
+                bg_block_bitmap_csum_hi: 0,
+                bg_inode_bitmap_csum_lo: 0,
+                bg_inode_bitmap_csum_hi: 0,
+                bg_itable_unused_lo: layout.inodes_per_group as u16,  // All inodes unused
+                bg_itable_unused_hi: 0,
+                bg_checksum: 0,
+                bg_reserved: 0,
+            };
+            
+            // Calculate checksum for this group descriptor
+            empty_gd.update_checksum(group_idx, &sb);
+            
+            let empty_gd_bytes = unsafe {
+                std::slice::from_raw_parts(
+                    &empty_gd as *const _ as *const u8,
+                    64
+                )
+            };
+            gdt_buffer[offset..offset + 64].copy_from_slice(empty_gd_bytes);
+        }
     }
-    current_block += 1;
+    
+    // Write the GDT blocks
+    for gdt_block_idx in 0..layout.gdt_blocks {
+        let block_offset = (current_block + gdt_block_idx as u64) * 4096;
+        let data_offset = gdt_block_idx as usize * 4096;
+        let data_end = ((gdt_block_idx + 1) as usize * 4096).min(gdt_buffer.len());
+        
+        #[cfg(target_os = "windows")]
+        device_io.write_aligned(block_offset, &gdt_buffer[data_offset..data_end])
+            .map_err(|e| MosesError::Other(format!("Failed to write GDT block {}: {:?}", gdt_block_idx, e)))?;
+        
+        #[cfg(not(target_os = "windows"))]
+        {
+            file.seek(SeekFrom::Start(block_offset))
+                .map_err(|e| MosesError::Other(format!("Failed to seek: {}", e)))?;
+            file.write_all(&gdt_buffer[data_offset..data_end])
+                .map_err(|e| MosesError::Other(format!("Failed to write GDT: {}", e)))?;
+        }
+    }
+    current_block += layout.gdt_blocks as u64;
     
     // Skip reserved GDT blocks
     current_block += layout.reserved_gdt_blocks as u64;
