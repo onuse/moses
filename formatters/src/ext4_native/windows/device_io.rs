@@ -4,15 +4,94 @@
 #[cfg(target_os = "windows")]
 use winapi::{
     um::fileapi::{CreateFileW, OPEN_EXISTING, SetFilePointerEx, WriteFile},
-    um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, HANDLE},
+    um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_READ, GENERIC_WRITE, HANDLE, LARGE_INTEGER},
     um::handleapi::CloseHandle,
     um::errhandlingapi::GetLastError,
+    um::ioapiset::DeviceIoControl,
+    um::winioctl::IOCTL_DISK_GET_LENGTH_INFO,
     shared::minwindef::DWORD,
     um::winbase::{FILE_FLAG_NO_BUFFERING, FILE_FLAG_WRITE_THROUGH, FILE_BEGIN},
 };
 
 use crate::ext4_native::core::{alignment::AlignedBuffer, types::*};
 use std::ptr::null_mut;
+
+/// Get device size using Windows IOCTL
+#[cfg(target_os = "windows")]
+fn get_device_size(handle: HANDLE) -> Ext4Result<u64> {
+    unsafe {
+        use std::mem;
+        
+        // GET_LENGTH_INFO structure
+        #[repr(C)]
+        struct GetLengthInfo {
+            length: LARGE_INTEGER,
+        }
+        
+        let mut length_info = mem::zeroed::<GetLengthInfo>();
+        let mut bytes_returned = 0u32;
+        
+        let success = DeviceIoControl(
+            handle,
+            IOCTL_DISK_GET_LENGTH_INFO,
+            null_mut(),
+            0,
+            &mut length_info as *mut _ as *mut _,
+            mem::size_of::<GetLengthInfo>() as u32,
+            &mut bytes_returned,
+            null_mut(),
+        );
+        
+        if success == 0 {
+            let error = GetLastError();
+            eprintln!("DEBUG: IOCTL_DISK_GET_LENGTH_INFO failed with error: {} (0x{:X})", error, error);
+            
+            // Fallback: Try IOCTL_DISK_GET_DRIVE_GEOMETRY_EX
+            use winapi::um::winioctl::IOCTL_DISK_GET_DRIVE_GEOMETRY_EX;
+            
+            #[repr(C)]
+            struct DiskGeometryEx {
+                geometry: DiskGeometry,
+                disk_size: LARGE_INTEGER,
+                data: [u8; 1],
+            }
+            
+            #[repr(C)]
+            struct DiskGeometry {
+                cylinders: LARGE_INTEGER,
+                media_type: u32,
+                tracks_per_cylinder: u32,
+                sectors_per_track: u32,
+                bytes_per_sector: u32,
+            }
+            
+            let mut geometry_ex = mem::zeroed::<DiskGeometryEx>();
+            let mut bytes_returned = 0u32;
+            
+            let success = DeviceIoControl(
+                handle,
+                IOCTL_DISK_GET_DRIVE_GEOMETRY_EX,
+                null_mut(),
+                0,
+                &mut geometry_ex as *mut _ as *mut _,
+                mem::size_of::<DiskGeometryEx>() as u32,
+                &mut bytes_returned,
+                null_mut(),
+            );
+            
+            if success == 0 {
+                let error = GetLastError();
+                return Err(Ext4Error::WindowsError(
+                    format!("Failed to get device size: error code {} (0x{:X})", error, error)
+                ));
+            }
+            
+            Ok(*geometry_ex.disk_size.QuadPart() as u64)
+        } else {
+            Ok(*length_info.length.QuadPart() as u64)
+        }
+    }
+}
 
 #[cfg(target_os = "windows")]
 pub struct WindowsDeviceIO {
@@ -113,8 +192,10 @@ impl WindowsDeviceIO {
             // Get sector size
             let sector_size = crate::ext4_native::core::alignment::get_sector_size(device_path)?;
             
-            // TODO: Get device size
-            let device_size = 0; // Will implement proper size detection
+            // Get device size using Windows IOCTL
+            let device_size = get_device_size(handle)?;
+            eprintln!("DEBUG: Device size detected: {} bytes ({:.2} GB)", 
+                     device_size, device_size as f64 / (1024.0 * 1024.0 * 1024.0));
             
             Ok(Self {
                 handle,
@@ -162,8 +243,6 @@ impl WindowsDeviceIO {
             
             // Seek to position
             unsafe {
-                use winapi::um::winnt::LARGE_INTEGER;
-                
                 let mut distance: LARGE_INTEGER = std::mem::zeroed();
                 *distance.QuadPart_mut() = (offset + written as u64) as i64;
                 
@@ -210,6 +289,11 @@ impl WindowsDeviceIO {
         }
         
         Ok(())
+    }
+    
+    /// Get the device size
+    pub fn device_size(&self) -> u64 {
+        self._device_size
     }
     
     /// Flush all pending writes

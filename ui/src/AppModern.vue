@@ -269,6 +269,9 @@
       </div>
     </div>
 
+    <!-- Log Console -->
+    <LogConsole ref="logConsole" />
+    
     <!-- Status Bar -->
     <div class="status-bar">
       <div class="status-item">
@@ -287,8 +290,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
+import { listen } from '@tauri-apps/api/event'
+import LogConsole from './components/LogConsole.vue'
 
 interface Device {
   id: string
@@ -319,6 +324,7 @@ interface SimulationReport {
 // State
 const isDarkMode = ref(true)
 const themeClass = computed(() => isDarkMode.value ? 'theme-dark' : 'theme-light')
+const logConsole = ref<InstanceType<typeof LogConsole> | null>(null)
 const devices = ref<Device[]>([])
 const selectedDevice = ref<Device | null>(null)
 const loading = ref(false)
@@ -443,11 +449,17 @@ const refreshDevices = async () => {
   
   isRefreshing.value = true
   loading.value = true
+  logConsole.value?.info('Scanning for devices...', 'DeviceManager')
   
   try {
     devices.value = await invoke('enumerate_devices')
+    logConsole.value?.info(`Found ${devices.value.length} devices`, 'DeviceManager')
+    devices.value.forEach(device => {
+      logConsole.value?.debug(`Device: ${device.name} (${device.id}) - ${formatSize(device.size)}`, 'DeviceManager')
+    })
   } catch (error) {
     console.error('Failed to enumerate devices:', error)
+    logConsole.value?.error(`Failed to scan drives: ${error}`, 'DeviceManager')
     alert(`Failed to scan drives: ${error}`)
   } finally {
     loading.value = false
@@ -506,6 +518,15 @@ const executeFormat = async () => {
   formatProgress.value = 0
   progressStatus.value = 'Initializing...'
   currentOperation.value = 'Preparing device'
+  
+  // Log format operation start
+  logConsole.value?.info('='.repeat(60), 'Formatter')
+  logConsole.value?.info(`Starting format operation`, 'Formatter')
+  logConsole.value?.info(`Device: ${selectedDevice.value.name} (${selectedDevice.value.id})`, 'Formatter')
+  logConsole.value?.info(`Filesystem: ${formatOptions.value.filesystem_type}`, 'Formatter')
+  logConsole.value?.info(`Label: ${formatOptions.value.label || '(none)'}`, 'Formatter')
+  logConsole.value?.debug(`Cluster size: ${formatOptions.value.cluster_size || 'default'}`, 'Formatter')
+  logConsole.value?.info('='.repeat(60), 'Formatter')
   
   // Simulate progress
   const startTime = Date.now()
@@ -571,13 +592,35 @@ const executeFormat = async () => {
   }
 }
 
-onMounted(() => {
+// Backend log listener
+let unlistenBackendLogs: (() => void) | null = null
+
+onMounted(async () => {
   // Load theme preference
   const savedTheme = localStorage.getItem('theme')
   if (savedTheme) {
     isDarkMode.value = savedTheme === 'dark'
   }
+  
+  // Set up backend log listener
+  try {
+    unlistenBackendLogs = await listen('backend-log', (event) => {
+      const log = event.payload as any
+      logConsole.value?.addLog(log.level, log.message, log.source)
+    })
+    logConsole.value?.info('Log console connected to backend', 'System')
+  } catch (error) {
+    console.error('Failed to set up log listener:', error)
+  }
+  
   refreshDevices()
+})
+
+onUnmounted(() => {
+  // Clean up listener
+  if (unlistenBackendLogs) {
+    unlistenBackendLogs()
+  }
 })
 </script>
 

@@ -66,7 +66,16 @@ pub async fn format_device(
     }
     
     // Update group descriptor free blocks count (2 blocks allocated)
-    gd.bg_free_blocks_count_lo -= 2;
+    // Need to handle this as a 32-bit value split across two u16 fields
+    let current_gd_free = gd.bg_free_blocks_count_lo as u32 
+        | ((gd.bg_free_blocks_count_hi as u32) << 16);
+    eprintln!("DEBUG: Group 0 before allocating dirs: lo={:#06x} hi={:#06x} total={}", 
+              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, current_gd_free);
+    let new_gd_free = current_gd_free.saturating_sub(2);
+    gd.bg_free_blocks_count_lo = (new_gd_free & 0xFFFF) as u16;
+    gd.bg_free_blocks_count_hi = ((new_gd_free >> 16) & 0xFFFF) as u16;
+    eprintln!("DEBUG: Group 0 after allocating dirs: lo={:#06x} hi={:#06x} total={}", 
+              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, new_gd_free);
     
     // Also update superblock's free blocks count
     let current_free = sb.s_free_blocks_count_lo as u64 | ((sb.s_free_blocks_count_hi as u64) << 32);
@@ -103,6 +112,75 @@ pub async fn format_device(
     // Create directory data blocks
     let dir_data = create_root_directory_block(params.block_size);
     let lf_data = create_lost_found_directory_block(params.block_size);
+    
+    // Recalculate total free blocks after setting up all groups
+    // The superblock needs the sum of all groups' free blocks
+    // Note: bg_free_blocks_count is a 32-bit value split into lo(16) and hi(16)
+    let group0_free = gd.bg_free_blocks_count_lo as u32 
+        | ((gd.bg_free_blocks_count_hi as u32) << 16);
+    let mut total_free_blocks = group0_free as u64;
+    
+    eprintln!("DEBUG: === FINAL FREE BLOCKS CALCULATION ===");
+    eprintln!("DEBUG: Group 0 descriptor: lo={:#06x} hi={:#06x} => {} free blocks", 
+              gd.bg_free_blocks_count_lo, gd.bg_free_blocks_count_hi, group0_free);
+    
+    eprintln!("DEBUG: Group 0 free blocks: {}", total_free_blocks);
+    eprintln!("DEBUG: Total groups: {}", layout.num_groups);
+    
+    // Add free blocks from uninitialized groups (1 through num_groups-1)
+    for group_idx in 1..layout.num_groups {
+        // Calculate actual blocks in this group (last group may be partial)
+        let group_start = group_idx as u64 * layout.blocks_per_group as u64;
+        let blocks_in_group = if group_idx == layout.num_groups - 1 {
+            // Last group may have fewer blocks
+            let remaining = layout.total_blocks.saturating_sub(group_start);
+            remaining.min(layout.blocks_per_group as u64) as u32
+        } else {
+            layout.blocks_per_group
+        };
+        
+        let metadata_blocks = layout.metadata_blocks_per_group(group_idx);
+        let free_blocks = blocks_in_group.saturating_sub(metadata_blocks) as u64;
+        total_free_blocks += free_blocks;
+        
+        eprintln!("DEBUG: Group {} - blocks_in_group: {}, metadata: {}, free: {}", 
+                  group_idx, blocks_in_group, metadata_blocks, free_blocks);
+    }
+    
+    eprintln!("DEBUG: Total free blocks calculated: {}", total_free_blocks);
+    eprintln!("DEBUG: Total blocks in filesystem: {}", layout.total_blocks);
+    
+    // Sanity check - free blocks should be less than total blocks
+    if total_free_blocks > layout.total_blocks {
+        eprintln!("ERROR: Critical calculation error - free blocks {} exceeds total blocks {}!", 
+                  total_free_blocks, layout.total_blocks);
+        // This should never happen with correct calculation
+        return Err(MosesError::Other(format!(
+            "Free blocks calculation overflow: {} > {}", 
+            total_free_blocks, layout.total_blocks
+        )));
+    }
+    
+    // Update superblock with correct total
+    sb.s_free_blocks_count_lo = (total_free_blocks & 0xFFFFFFFF) as u32;
+    sb.s_free_blocks_count_hi = ((total_free_blocks >> 32) & 0xFFFFFFFF) as u32;
+    
+    eprintln!("DEBUG: Superblock s_free_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
+              sb.s_free_blocks_count_lo, sb.s_free_blocks_count_hi, total_free_blocks);
+    eprintln!("DEBUG: Superblock s_blocks_count: lo={:#010x} hi={:#010x} => total={}", 
+              sb.s_blocks_count_lo, sb.s_blocks_count_hi, layout.total_blocks);
+    
+    // Similarly update total free inodes - also fix the shift here
+    let group0_free_inodes = gd.bg_free_inodes_count_lo as u32 
+        | ((gd.bg_free_inodes_count_hi as u32) << 16);
+    let mut total_free_inodes = group0_free_inodes;
+    
+    // Add free inodes from uninitialized groups
+    for _group_idx in 1..layout.num_groups {
+        total_free_inodes += layout.inodes_per_group;
+    }
+    
+    sb.s_free_inodes_count = total_free_inodes;
     
     // Update checksums
     gd.update_checksum(0, &sb);
@@ -223,9 +301,18 @@ pub async fn format_device(
             let inode_table_block = block_offset + 2;
             
             // Calculate free blocks for this uninitialized group
+            // Need to handle last group which may be partial
+            let blocks_in_group = if group_idx == layout.num_groups - 1 {
+                // Last group may have fewer blocks
+                let remaining = layout.total_blocks.saturating_sub(group_first_block);
+                remaining.min(layout.blocks_per_group as u64) as u32
+            } else {
+                layout.blocks_per_group
+            };
+            
             // All blocks are free except metadata blocks
             let metadata_blocks = layout.metadata_blocks_per_group(group_idx);
-            let free_blocks = layout.blocks_per_group.saturating_sub(metadata_blocks);
+            let free_blocks = blocks_in_group.saturating_sub(metadata_blocks);
             
             // Calculate free inodes (all inodes in uninitialized groups are free)
             let free_inodes = layout.inodes_per_group;

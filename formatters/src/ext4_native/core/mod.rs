@@ -9,6 +9,10 @@ pub mod formatter;
 pub mod formatter_impl;
 pub mod structures;
 pub mod types;
+pub mod tests;
+pub mod test_overflow;
+pub mod test_regression;
+pub mod test_free_blocks_fix;
 
 // Re-export commonly used items
 pub use alignment::AlignedBuffer;
