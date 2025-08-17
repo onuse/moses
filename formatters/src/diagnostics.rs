@@ -4,13 +4,154 @@ use std::io::{Read, Seek, SeekFrom};
 use moses_core::{Device, MosesError};
 use log::info;
 
+/// Get a short filesystem type description from analysis
+pub fn get_filesystem_type(device: &Device) -> Result<String, MosesError> {
+    info!("Getting filesystem type for device: {}", device.name);
+    
+    #[cfg(target_os = "windows")]
+    {
+        use crate::device_reader::AlignedDeviceReader;
+        use crate::utils::open_device_with_fallback;
+        
+        let file = open_device_with_fallback(device)?;
+        let mut reader = AlignedDeviceReader::new(file);
+        get_filesystem_type_impl(&mut reader)
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        use crate::utils::open_device_with_fallback;
+        let mut file = open_device_with_fallback(device)?;
+        get_filesystem_type_impl(&mut file)
+    }
+}
+
+/// Implementation that returns a short filesystem type
+fn get_filesystem_type_impl<R: Read + Seek>(file: &mut R) -> Result<String, MosesError> {
+    // Read boot sector
+    let mut boot_sector = vec![0u8; 512];
+    file.read_exact(&mut boot_sector)
+        .map_err(|e| MosesError::Other(format!("Failed to read boot sector: {}", e)))?;
+    
+    // Quick filesystem checks
+    let oem_name = String::from_utf8_lossy(&boot_sector[3..11]);
+    if oem_name.starts_with("NTFS") {
+        return Ok("ntfs".to_string());
+    } else if oem_name.starts_with("EXFAT") {
+        return Ok("exfat".to_string());
+    } else if oem_name.starts_with("MSDOS") || oem_name.starts_with("FAT") {
+        // Check for FAT type
+        if boot_sector[82..87] == [0x46, 0x41, 0x54, 0x33, 0x32] { // "FAT32"
+            return Ok("fat32".to_string());
+        } else if boot_sector[54..59] == [0x46, 0x41, 0x54, 0x31, 0x36] { // "FAT16"
+            return Ok("fat16".to_string());
+        }
+    }
+    
+    // Check for MBR/GPT
+    if boot_sector[510] == 0x55 && boot_sector[511] == 0xAA {
+        // Check partition table
+        for i in 0..4 {
+            let offset = 446 + i * 16;
+            if offset + 16 <= boot_sector.len() {
+                let partition_type = boot_sector[offset + 4];
+                if partition_type == 0xEE {
+                    // GPT protective MBR - check for actual partitions
+                    if file.seek(SeekFrom::Start(512)).is_ok() {
+                        let mut gpt_header = vec![0u8; 512];
+                        if file.read_exact(&mut gpt_header).is_ok() {
+                            if &gpt_header[0..8] == b"EFI PART" {
+                                // Read partition entries to see if any exist
+                                let partition_entries_lba = u64::from_le_bytes([
+                                    gpt_header[72], gpt_header[73], gpt_header[74], gpt_header[75],
+                                    gpt_header[76], gpt_header[77], gpt_header[78], gpt_header[79]
+                                ]);
+                                
+                                if file.seek(SeekFrom::Start(partition_entries_lba * 512)).is_ok() {
+                                    let mut sector = vec![0u8; 512];
+                                    if file.read_exact(&mut sector).is_ok() {
+                                        // Check first 4 partition entries in the sector
+                                        let mut has_partition = false;
+                                        for j in 0..4 {
+                                            let entry_start = j * 128;
+                                            let entry = &sector[entry_start..entry_start + 128];
+                                            if entry[0..16].iter().any(|&b| b != 0) {
+                                                has_partition = true;
+                                                break;
+                                            }
+                                        }
+                                        return Ok(if has_partition { "gpt".to_string() } else { "gpt-empty".to_string() });
+                                    }
+                                }
+                                return Ok("gpt".to_string());
+                            }
+                        }
+                    }
+                } else if partition_type != 0 {
+                    // MBR with partitions
+                    return Ok("mbr".to_string());
+                }
+            }
+        }
+        
+        // Has boot signature but no partitions
+        return Ok("mbr-empty".to_string());
+    }
+    
+    // Check for ext at offset 1024
+    if file.seek(SeekFrom::Start(1024)).is_ok() {
+        let mut ext_superblock = vec![0u8; 512];
+        if file.read_exact(&mut ext_superblock).is_ok() {
+            if ext_superblock[56] == 0x53 && ext_superblock[57] == 0xEF {
+                // Check ext variant
+                if ext_superblock.len() >= 100 {
+                    let incompat_features = u32::from_le_bytes([
+                        ext_superblock[96], ext_superblock[97], ext_superblock[98], ext_superblock[99]
+                    ]);
+                    let compat_features = u32::from_le_bytes([
+                        ext_superblock[92], ext_superblock[93], ext_superblock[94], ext_superblock[95]
+                    ]);
+                    
+                    if incompat_features & 0x0040 != 0 {
+                        return Ok("ext4".to_string());
+                    } else if compat_features & 0x0004 != 0 {
+                        return Ok("ext3".to_string());
+                    } else {
+                        return Ok("ext2".to_string());
+                    }
+                }
+            }
+        }
+    }
+    
+    Ok("unknown".to_string())
+}
+
 /// Analyze an unknown filesystem and provide diagnostic information
 pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError> {
-    use crate::utils::open_device_with_fallback;
-    
     info!("Analyzing unknown filesystem on device: {}", device.name);
     
-    let mut file = open_device_with_fallback(device)?;
+    // Use AlignedDeviceReader on Windows for proper sector-aligned access
+    #[cfg(target_os = "windows")]
+    {
+        use crate::device_reader::AlignedDeviceReader;
+        use crate::utils::open_device_with_fallback;
+        
+        let file = open_device_with_fallback(device)?;
+        let mut reader = AlignedDeviceReader::new(file);
+        analyze_filesystem_impl(&mut reader, device)
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        use crate::utils::open_device_with_fallback;
+        let mut file = open_device_with_fallback(device)?;
+        analyze_filesystem_impl(&mut file, device)
+    }
+}
+
+/// Implementation of filesystem analysis that works with any Read + Seek trait
+fn analyze_filesystem_impl<R: Read + Seek>(file: &mut R, device: &Device) -> Result<String, MosesError> {
     let mut report = String::new();
     
     // Read first 512 bytes (boot sector)
@@ -109,15 +250,60 @@ pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError>
                         ]);
                         
                         report.push_str(&format!("Number of partitions: {}\n", num_partition_entries));
+                        report.push_str(&format!("Partition entries start at LBA: {}\n", partition_entries_lba));
                         
                         // Try to read first partition entry
                         if num_partition_entries > 0 {
                             let partition_offset = partition_entries_lba * 512;
-                            if file.seek(SeekFrom::Start(partition_offset)).is_ok() {
-                                let mut partition_entry = vec![0u8; 128]; // GPT entries are 128 bytes
-                                if file.read_exact(&mut partition_entry).is_ok() {
+                            report.push_str(&format!("Reading partition table at offset 0x{:X}\n", partition_offset));
+                            
+                            match file.seek(SeekFrom::Start(partition_offset)) {
+                                Ok(_) => {
+                                    // Read the partition entries (4 entries per sector, 128 bytes each)
+                                    let mut sector = vec![0u8; 512];
+                                    match file.read_exact(&mut sector) {
+                                        Ok(_) => {
+                                            // Extract the first partition entry (128 bytes) from the sector
+                                            let partition_entry = &sector[0..128];
                                     // Check if partition exists (type GUID != all zeros)
-                                    if partition_entry[0..16].iter().any(|&b| b != 0) {
+                                    let has_partition = partition_entry[0..16].iter().any(|&b| b != 0);
+                                    
+                                    if !has_partition {
+                                        report.push_str("\nNo active partitions found (first entry is empty)\n");
+                                        
+                                        // Show first 32 bytes of the entry for debugging
+                                        report.push_str("First 32 bytes of partition entry (should be Type GUID):\n");
+                                        for i in 0..2 {
+                                            report.push_str(&format!("  {:04X}: ", i * 16));
+                                            for j in 0..16 {
+                                                let idx = i * 16 + j;
+                                                if idx < 32 && idx < partition_entry.len() {
+                                                    report.push_str(&format!("{:02X} ", partition_entry[idx]));
+                                                }
+                                            }
+                                            report.push_str("\n");
+                                        }
+                                        
+                                        // Try to check next few entries
+                                        // GPT stores 4 partition entries per sector (4 * 128 = 512)
+                                        let mut found_partition = false;
+                                        
+                                        // Check remaining entries in the first sector
+                                        for i in 1..4 {
+                                            let entry_start = i * 128;
+                                            if entry_start + 128 <= sector.len() {
+                                                let entry = &sector[entry_start..entry_start + 128];
+                                                if entry[0..16].iter().any(|&b| b != 0) {
+                                                    report.push_str(&format!("Found partition at entry {}\n", i + 1));
+                                                    found_partition = true;
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                        if !found_partition {
+                                            report.push_str("No partitions found in first 4 entries (first sector)\n");
+                                        }
+                                    } else {
                                         let first_lba = u64::from_le_bytes([
                                             partition_entry[32], partition_entry[33], partition_entry[34], partition_entry[35],
                                             partition_entry[36], partition_entry[37], partition_entry[38], partition_entry[39]
@@ -134,6 +320,7 @@ pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError>
                                         
                                         // Try to identify filesystem in the partition
                                         let fs_offset = first_lba * 512;
+                                        // Ensure offset is sector-aligned (it should be since first_lba is in sectors)
                                         if file.seek(SeekFrom::Start(fs_offset)).is_ok() {
                                             let mut fs_boot = vec![0u8; 512];
                                             if file.read_exact(&mut fs_boot).is_ok() {
@@ -163,6 +350,14 @@ pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError>
                                             }
                                         }
                                     }
+                                        }
+                                        Err(e) => {
+                                            report.push_str(&format!("Failed to read partition entry: {}\n", e));
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    report.push_str(&format!("Failed to seek to partition table: {}\n", e));
                                 }
                             }
                         }

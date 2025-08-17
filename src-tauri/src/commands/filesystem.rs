@@ -531,6 +531,28 @@ pub async fn request_elevated_filesystem_detection(
     }
 }
 
+/// Get filesystem type quickly (returns short string like "ntfs", "gpt-empty", etc.)
+#[tauri::command]
+pub async fn get_filesystem_type(
+    device_id: String,
+) -> Result<String, String> {
+    log::info!("Getting filesystem type for device: {}", device_id);
+    
+    let device = get_device(&device_id)
+        .ok_or_else(|| format!("Device {} not found", device_id))?;
+    
+    match moses_formatters::diagnostics::get_filesystem_type(&device) {
+        Ok(fs_type) => {
+            log::info!("Detected filesystem type: {}", fs_type);
+            Ok(fs_type)
+        }
+        Err(e) => {
+            log::error!("Failed to get filesystem type: {:?}", e);
+            Err(format!("Failed to detect filesystem type: {:?}", e))
+        }
+    }
+}
+
 /// Analyze an unknown filesystem and return diagnostic information
 #[tauri::command]
 pub async fn analyze_filesystem(

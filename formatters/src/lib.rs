@@ -9,6 +9,7 @@ pub mod utils;
 pub mod detection;
 pub mod device_reader;
 pub mod diagnostics;
+pub mod partitioner;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;

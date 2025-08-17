@@ -148,6 +148,12 @@ impl FilesystemFormatter for Fat16Formatter {
     async fn format(&self, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
         info!("Formatting {} as FAT16", device.name);
         
+        // Check if we should create a partition table
+        let create_partition = options.additional_options
+            .get("create_partition_table")
+            .map(|v| v == "true")
+            .unwrap_or(false);
+        
         // Calculate parameters
         let (sectors_per_cluster, sectors_per_fat, root_entries) = 
             Self::calculate_fat16_params(device.size)?;
@@ -210,6 +216,33 @@ impl FilesystemFormatter for Fat16Formatter {
             .write(true)
             .open(&device_path)
             .map_err(|e| MosesError::Other(format!("Failed to open device: {}", e)))?;
+        
+        // If requested, write partition table first
+        let partition_offset = if create_partition {
+            info!("Creating MBR partition table");
+            
+            use crate::partitioner::{create_single_partition_table, PartitionTableType, write_partition_table};
+            
+            let partition_table = create_single_partition_table(
+                device,
+                PartitionTableType::MBR,
+                "fat16"
+            )?;
+            
+            write_partition_table(&mut file, &partition_table)?;
+            
+            // FAT16 filesystem will start at sector 2048 (1MB offset)
+            2048 * 512
+        } else {
+            // No partition table, filesystem starts at sector 0
+            0
+        };
+        
+        // Seek to partition start
+        if partition_offset > 0 {
+            file.seek(SeekFrom::Start(partition_offset))
+                .map_err(|e| MosesError::Other(format!("Failed to seek to partition start: {}", e)))?;
+        }
         
         // Write boot sector
         let boot_sector_bytes = unsafe {

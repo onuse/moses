@@ -169,6 +169,34 @@ impl AlignedDeviceReader {
     }
 }
 
+// Implement standard Read trait for AlignedDeviceReader
+impl Read for AlignedDeviceReader {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        // Get current position
+        let pos = self.file.stream_position()?;
+        
+        // Read using our aligned method
+        let data = self.read_at(pos, buf.len())
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))?;
+        
+        // Copy to buffer
+        let bytes_read = data.len().min(buf.len());
+        buf[..bytes_read].copy_from_slice(&data[..bytes_read]);
+        
+        // Update file position
+        self.file.seek(SeekFrom::Start(pos + bytes_read as u64))?;
+        
+        Ok(bytes_read)
+    }
+}
+
+// Implement Seek trait for AlignedDeviceReader
+impl Seek for AlignedDeviceReader {
+    fn seek(&mut self, pos: SeekFrom) -> std::io::Result<u64> {
+        self.file.seek(pos)
+    }
+}
+
 /// Trait for common filesystem operations
 /// All filesystem readers should implement this
 pub trait FilesystemReader {

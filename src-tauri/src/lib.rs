@@ -615,6 +615,7 @@ pub fn run() {
             commands::filesystem::copy_files,
             commands::filesystem::detect_filesystem_elevated,
             commands::filesystem::request_elevated_filesystem_detection,
+            commands::filesystem::get_filesystem_type,
             commands::filesystem::analyze_filesystem,
             commands::filesystem::analyze_filesystem_elevated
         ])

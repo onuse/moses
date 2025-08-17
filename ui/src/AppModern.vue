@@ -115,6 +115,9 @@
                     <div class="drive-name">{{ device.name }}</div>
                     <div class="drive-meta">
                       {{ formatSize(device.size) }} • {{ device.device_type }}
+                      <span v-if="device.filesystem" class="filesystem-info">
+                        • {{ formatFilesystemName(device.filesystem) }}
+                      </span>
                     </div>
                   </div>
                   <div v-if="device.is_system" class="drive-badge system">System</div>
@@ -144,6 +147,9 @@
                     <div class="drive-name">{{ device.name }}</div>
                     <div class="drive-meta">
                       {{ formatSize(device.size) }} • {{ device.device_type }}
+                      <span v-if="device.filesystem" class="filesystem-info">
+                        • {{ formatFilesystemName(device.filesystem) }}
+                      </span>
                     </div>
                   </div>
                   <div class="drive-badge removable">Ready</div>
@@ -250,11 +256,11 @@
                     </label>
 
                     <label class="checkbox-label">
-                      <input type="checkbox" v-model="formatOptions.create_partition" checked disabled>
-                      <span class="checkbox-box checked"></span>
+                      <input type="checkbox" v-model="formatOptions.create_partition_table">
+                      <span class="checkbox-box" :class="{ checked: formatOptions.create_partition_table }"></span>
                       <span class="checkbox-text">
                         Create Partition Table
-                        <span class="checkbox-hint">Required for formatting</span>
+                        <span class="checkbox-hint">Creates MBR with single partition</span>
                       </span>
                     </label>
                   </div>
@@ -400,6 +406,7 @@ interface FormatOptions {
   quick_format: boolean
   enable_compression: boolean
   verify_after_format: boolean
+  create_partition_table: boolean
   additional_options: Record<string, string>
 }
 
@@ -440,6 +447,7 @@ const formatOptions = ref<FormatOptions>({
   quick_format: true,
   enable_compression: false,
   verify_after_format: false,
+  create_partition_table: true,  // Add this field
   additional_options: {}
 })
 
@@ -533,6 +541,36 @@ const formatSize = (bytes: number): string => {
   
   return `${size.toFixed(2)} ${units[unitIndex]}`
 }
+
+const formatFilesystemName = (fs: string): string => {
+  if (!fs || fs === 'unknown') return 'Unknown'
+  
+  // Format common filesystem names nicely
+  const fsMap: Record<string, string> = {
+    'ntfs': 'NTFS',
+    'fat32': 'FAT32',
+    'fat16': 'FAT16',
+    'exfat': 'exFAT',
+    'ext2': 'ext2',
+    'ext3': 'ext3',
+    'ext4': 'ext4',
+    'apfs': 'APFS',
+    'hfs+': 'HFS+',
+    'btrfs': 'Btrfs',
+    'xfs': 'XFS',
+    'zfs': 'ZFS',
+    'gpt': 'GPT',
+    'gpt-empty': 'GPT (Empty)',
+    'mbr': 'MBR',
+    'mbr-empty': 'MBR (Empty)',
+    'uninitialized': 'Uninitialized'
+  }
+  
+  return fsMap[fs.toLowerCase()] || fs
+}
+
+// Cache for analysis results to avoid re-analyzing
+const analysisCache = ref<Map<string, string>>(new Map())
 
 const formatDuration = (seconds: number): string => {
   if (seconds < 60) return `${seconds} seconds`
@@ -631,7 +669,11 @@ const simulateFormat = async () => {
     // Prepare options with proper null handling for label
     const options = {
       ...formatOptions.value,
-      label: formatOptions.value.label?.trim() || null
+      label: formatOptions.value.label?.trim() || null,
+      additional_options: {
+        ...formatOptions.value.additional_options,
+        create_partition_table: formatOptions.value.create_partition_table ? 'true' : 'false'
+      }
     }
     console.log('Starting simulation for:', selectedDevice.value.name, options)
     simulationReport.value = await invoke('simulate_format', {
@@ -677,6 +719,37 @@ const analyzeFilesystem = async () => {
     })
     
     analysisResult.value = result as string
+    
+    // Also get the filesystem type to update the device
+    try {
+      const fsType = await invoke('get_filesystem_type', {
+        deviceId: selectedDevice.value.id
+      }) as string
+      
+      if (fsType && fsType !== 'unknown') {
+        selectedDevice.value.filesystem = fsType
+        logConsole.value?.info(`Detected filesystem type: ${formatFilesystemName(fsType)}`, 'Analyzer')
+        
+        // Update in the devices list too
+        const deviceIndex = devices.value.findIndex(d => d.id === selectedDevice.value!.id)
+        if (deviceIndex >= 0) {
+          devices.value[deviceIndex].filesystem = fsType
+        }
+      }
+    } catch (e) {
+      // If quick detection fails, try to extract from analysis
+      if (result.includes('GPT Header Found') && result.includes('No active partitions found')) {
+        selectedDevice.value.filesystem = 'gpt-empty'
+        logConsole.value?.info('Detected: GPT disk with no partitions', 'Analyzer')
+      } else if (result.includes('GPT Header Found')) {
+        selectedDevice.value.filesystem = 'gpt'
+        logConsole.value?.info('Detected: GPT disk', 'Analyzer')
+      } else if (result.includes('MBR with partition table')) {
+        selectedDevice.value.filesystem = 'mbr'
+        logConsole.value?.info('Detected: MBR disk', 'Analyzer')
+      }
+    }
+    
     logConsole.value?.info('Filesystem analysis completed', 'Analyzer')
   } catch (error: any) {
     const errorStr = error.toString()
@@ -802,9 +875,18 @@ const executeFormat = async () => {
   }, 500)
   
   try {
+    // Add create_partition_table to additional_options
+    const options = {
+      ...formatOptions.value,
+      additional_options: {
+        ...formatOptions.value.additional_options,
+        create_partition_table: formatOptions.value.create_partition_table ? 'true' : 'false'
+      }
+    }
+    
     await invoke('execute_format', {
       device: selectedDevice.value,
-      options: formatOptions.value
+      options
     })
     
     clearInterval(progressInterval)
@@ -1217,6 +1299,11 @@ body {
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+.filesystem-info {
+  color: var(--text-tertiary);
+  font-weight: 500;
 }
 
 .drive-badge {
