@@ -2065,6 +2065,7 @@ dependencies = [
  "serde",
  "static_assertions",
  "tokio",
+ "uuid",
  "which",
  "winapi",
 ]

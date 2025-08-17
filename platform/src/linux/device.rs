@@ -331,6 +331,13 @@ impl DeviceManager for LinuxDeviceManager {
         Ok(devices)
     }
     
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, MosesError> {
+        // For Linux, just enumerate all devices and find the matching one
+        // This is not optimal but avoids duplicating complex device detection logic
+        let devices = self.enumerate_devices().await?;
+        Ok(devices.into_iter().find(|d| d.id == device_id))
+    }
+    
     async fn get_device_info(&self, device: &Device) -> Result<DeviceInfo, MosesError> {
         let partitions = self.get_partitions(&device.id).await;
         

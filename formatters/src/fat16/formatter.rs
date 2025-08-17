@@ -154,11 +154,20 @@ impl FilesystemFormatter for Fat16Formatter {
             .map(|v| v == "true")
             .unwrap_or(false);
         
-        // Calculate parameters
-        let (sectors_per_cluster, sectors_per_fat, root_entries) = 
-            Self::calculate_fat16_params(device.size)?;
+        // Calculate parameters based on partition size if creating partition table
+        let partition_size = if create_partition {
+            // When creating partition table, partition starts at sector 2048
+            // So available size is reduced by 1MB
+            device.size - (2048 * 512)
+        } else {
+            device.size
+        };
         
-        let total_sectors = device.size / 512;
+        let (sectors_per_cluster, sectors_per_fat, root_entries) = 
+            Self::calculate_fat16_params(partition_size)?;
+        
+        let total_sectors = partition_size / 512;
+        let hidden_sectors = if create_partition { 2048u32 } else { 0u32 };
         
         // Create boot sector
         let mut boot_sector = Fat16BootSector {
@@ -174,7 +183,7 @@ impl FilesystemFormatter for Fat16Formatter {
             sectors_per_fat,
             sectors_per_track: 63,
             num_heads: 255,
-            hidden_sectors: 0,
+            hidden_sectors,
             total_sectors_32: if total_sectors >= 65536 { total_sectors as u32 } else { 0 },
             drive_number: 0x80,
             reserved: 0,
@@ -265,13 +274,13 @@ impl FilesystemFormatter for Fat16Formatter {
         fat[2] = 0xFF; // End of chain marker
         fat[3] = 0xFF;
         
-        // Write first FAT
-        file.seek(SeekFrom::Start(512))
+        // Write first FAT (after boot sector, which is at partition_offset)
+        file.seek(SeekFrom::Start(partition_offset + 512))
             .map_err(|e| MosesError::Other(format!("Failed to seek to FAT1: {}", e)))?;
         file.write_all(&fat)
             .map_err(|e| MosesError::Other(format!("Failed to write FAT1: {}", e)))?;
         
-        // Write second FAT
+        // Write second FAT (immediately after first FAT)
         file.write_all(&fat)
             .map_err(|e| MosesError::Other(format!("Failed to write FAT2: {}", e)))?;
         

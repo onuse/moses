@@ -114,6 +114,10 @@ impl DeviceManager for MockDeviceManager {
         Ok(self.devices.clone())
     }
 
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, MosesError> {
+        Ok(self.devices.iter().find(|d| d.id == device_id).cloned())
+    }
+
     async fn get_device_info(&self, device: &Device) -> Result<DeviceInfo, MosesError> {
         Ok(DeviceInfo {
             device: device.clone(),

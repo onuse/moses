@@ -6,7 +6,7 @@ use std::fs;
 use std::path::Path;
 use std::io::Write;
 use moses_core::{Device, FormatOptions, FilesystemFormatter};
-use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
+use moses_formatters::{NtfsFormatter, Fat16Formatter, Fat32Formatter, ExFatFormatter};
 use moses_formatters::diagnostics::analyze_unknown_filesystem;
 #[cfg(target_os = "windows")]
 use moses_formatters::{Ext2Formatter, Ext3Formatter};
@@ -550,6 +550,30 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
                 .map_err(|e| format!("Format failed: {}", e))?;
             
             Ok(format!("Successfully formatted {} as NTFS", device.name))
+        },
+        
+        "fat16" => {
+            log_to_file("Using Fat16Formatter");
+            let formatter = Fat16Formatter;
+            
+            formatter.validate_options(&options)
+                .await
+                .map_err(|e| format!("Invalid options: {}", e))?;
+            
+            if !formatter.can_format(&device) {
+                return Err("Device cannot be formatted".to_string());
+            }
+            
+            // Check size limit
+            if device.size > 4 * 1024 * 1024 * 1024 {
+                return Err("Device too large for FAT16. Maximum size is 4GB.".to_string());
+            }
+            
+            formatter.format(&device, &options)
+                .await
+                .map_err(|e| format!("Format failed: {}", e))?;
+            
+            Ok(format!("Successfully formatted {} as FAT16", device.name))
         },
         
         "fat32" => {

@@ -1,9 +1,11 @@
 // FAT16 module - formatter and reader
 
 pub mod formatter;
+pub mod system_formatter;
 pub mod reader;
 
-pub use formatter::Fat16Formatter;
+// Use system formatter for FAT16 since native implementation has issues
+pub use system_formatter::Fat16SystemFormatter as Fat16Formatter;
 pub use reader::Fat16Reader;
 
 use crate::detection::FilesystemDetector;

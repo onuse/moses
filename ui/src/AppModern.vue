@@ -212,6 +212,7 @@
                       <optgroup label="Windows">
                         <option value="ntfs">NTFS - Windows native</option>
                         <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
+                        <option value="fat16">FAT16 - Legacy, max 4GB volume</option>
                       </optgroup>
                       <optgroup label="Linux (ext family)">
                         <option value="ext4">ext4 - Modern Linux</option>
@@ -738,15 +739,26 @@ const analyzeFilesystem = async () => {
       }
     } catch (e) {
       // If quick detection fails, try to extract from analysis
+      let detectedType: string | null = null
+      
       if (result.includes('GPT Header Found') && result.includes('No active partitions found')) {
-        selectedDevice.value.filesystem = 'gpt-empty'
+        detectedType = 'gpt-empty'
         logConsole.value?.info('Detected: GPT disk with no partitions', 'Analyzer')
       } else if (result.includes('GPT Header Found')) {
-        selectedDevice.value.filesystem = 'gpt'
+        detectedType = 'gpt'
         logConsole.value?.info('Detected: GPT disk', 'Analyzer')
       } else if (result.includes('MBR with partition table')) {
-        selectedDevice.value.filesystem = 'mbr'
+        detectedType = 'mbr'
         logConsole.value?.info('Detected: MBR disk', 'Analyzer')
+      }
+      
+      // Update both selected device and devices list
+      if (detectedType) {
+        selectedDevice.value.filesystem = detectedType
+        const deviceIndex = devices.value.findIndex(d => d.id === selectedDevice.value!.id)
+        if (deviceIndex >= 0) {
+          devices.value[deviceIndex].filesystem = detectedType
+        }
       }
     }
     

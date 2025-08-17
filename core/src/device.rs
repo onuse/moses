@@ -52,6 +52,7 @@ pub enum PermissionLevel {
 #[async_trait::async_trait]
 pub trait DeviceManager: Send + Sync {
     async fn enumerate_devices(&self) -> Result<Vec<Device>, crate::MosesError>;
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, crate::MosesError>;
     async fn get_device_info(&self, device: &Device) -> Result<DeviceInfo, crate::MosesError>;
     async fn is_safe_to_format(&self, device: &Device) -> Result<bool, crate::MosesError>;
     async fn check_permissions(&self, device: &Device) -> Result<PermissionLevel, crate::MosesError>;

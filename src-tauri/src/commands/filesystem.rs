@@ -758,7 +758,9 @@ fn get_device(device_id: &str) -> Option<Device> {
     use moses_core::DeviceManager;
     use futures::executor::block_on;
     
-    // Get all devices and find the one with matching ID
+    // Get single device by ID instead of enumerating all devices
+    log::debug!("Looking up device: {}", device_id);
+    
     #[cfg(target_os = "windows")]
     let manager = PlatformDeviceManager;
     
@@ -768,8 +770,6 @@ fn get_device(device_id: &str) -> Option<Device> {
     #[cfg(target_os = "macos")]
     let manager = PlatformDeviceManager;
     
-    let devices = block_on(manager.enumerate_devices()).ok()?;
-    
-    devices.into_iter()
-        .find(|d| d.id == device_id)
+    // Use the new get_device_by_id method to avoid enumerating all devices
+    block_on(manager.get_device_by_id(device_id)).ok().flatten()
 }

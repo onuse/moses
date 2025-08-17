@@ -33,6 +33,12 @@ impl DeviceManager for MacOSDeviceManager {
         }
     }
 
+    async fn get_device_by_id(&self, device_id: &str) -> Result<Option<Device>, MosesError> {
+        // For macOS, enumerate all and find the matching one
+        let devices = self.enumerate_devices().await?;
+        Ok(devices.into_iter().find(|d| d.id == device_id))
+    }
+
     async fn get_device_info(&self, device: &Device) -> Result<DeviceInfo, MosesError> {
         // Return mock device info for now
         Ok(DeviceInfo {
