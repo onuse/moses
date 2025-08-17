@@ -2,9 +2,11 @@
 
 pub mod formatter;
 pub mod reader;
+pub mod reader_improved;
 
 pub use formatter::Fat32Formatter;
-pub use reader::Fat32Reader;
+// Use the improved reader that uses aligned device reading
+pub use reader_improved::Fat32ReaderImproved as Fat32Reader;
 
 use crate::detection::FilesystemDetector;
 

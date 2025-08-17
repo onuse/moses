@@ -1,6 +1,5 @@
 use moses_core::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, Partition, PermissionLevel};
 use std::fs::File;
-use std::io::{Read, Seek, SeekFrom};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -215,6 +214,66 @@ impl WindowsDeviceManager {
         }
     }
     
+    async fn get_all_volume_filesystems(&self) -> std::collections::HashMap<String, String> {
+        let mut cmd = Command::new("powershell.exe");
+        
+        #[cfg(target_os = "windows")]
+        {
+            const CREATE_NO_WINDOW: u32 = 0x08000000;
+            cmd.creation_flags(CREATE_NO_WINDOW);
+        }
+        
+        // Get all volumes and their filesystems in one call
+        let output = match cmd
+            .args(&[
+                "-NoProfile",
+                "-Command",
+                "Get-Volume | Where-Object { $_.DriveLetter -ne $null } | Select-Object DriveLetter, FileSystemType | ConvertTo-Json"
+            ])
+            .output() {
+            Ok(o) => o,
+            Err(e) => {
+                log::warn!("Failed to get volume filesystems: {}", e);
+                return std::collections::HashMap::new();
+            }
+        };
+        
+        if !output.status.success() {
+            return std::collections::HashMap::new();
+        }
+        
+        let json_str = String::from_utf8_lossy(&output.stdout);
+        
+        #[derive(Deserialize)]
+        struct VolumeInfo {
+            #[serde(rename = "DriveLetter")]
+            drive_letter: Option<String>,
+            #[serde(rename = "FileSystemType")]
+            filesystem_type: Option<String>,
+        }
+        
+        let volumes: Vec<VolumeInfo> = if json_str.trim().starts_with('[') {
+            serde_json::from_str(&json_str).unwrap_or_default()
+        } else {
+            // Single volume
+            serde_json::from_str::<VolumeInfo>(&json_str)
+                .map(|v| vec![v])
+                .unwrap_or_default()
+        };
+        
+        let mut fs_map = std::collections::HashMap::new();
+        for vol in volumes {
+            if let (Some(letter), Some(fs_type)) = (vol.drive_letter, vol.filesystem_type) {
+                if !letter.is_empty() && !fs_type.is_empty() && fs_type.to_lowercase() != "raw" {
+                    fs_map.insert(format!("{}:", letter), fs_type.to_lowercase());
+                }
+            }
+        }
+        
+        log::info!("Detected filesystems for {} volumes", fs_map.len());
+        fs_map
+    }
+
     async fn get_partitions(&self, disk_number: u32) -> Vec<Partition> {
         let mut cmd = Command::new("powershell.exe");
         
@@ -273,6 +332,10 @@ impl DeviceManager for WindowsDeviceManager {
         // Get additional info from WMI for better model names
         let wmi_drives = self.get_wmi_disk_drives().await.unwrap_or_default();
         
+        // Get all filesystem types in one batch call to avoid slow individual queries
+        let volume_filesystems = self.get_all_volume_filesystems().await;
+        log::info!("Pre-fetched filesystem types for {} volumes", volume_filesystems.len());
+        
         let mut devices = Vec::new();
         
         for disk in ps_disks {
@@ -323,45 +386,28 @@ impl DeviceManager for WindowsDeviceManager {
                 None
             };
             
-            // If we don't have admin rights or direct detection failed, and we have mount points, try to get filesystem from Windows
+            // If we don't have admin rights or direct detection failed, and we have mount points, try to get filesystem from our pre-fetched map
             if filesystem.is_none() && !mount_points.is_empty() {
                 for mount_point in &mount_points {
                     let mount_str = mount_point.to_string_lossy();
                     // Check if it's a drive letter like "E:" or "E:\"
                     if mount_str.len() >= 2 && mount_str.chars().nth(1) == Some(':') {
-                        let drive_letter = mount_str.chars().next().unwrap();
-                        // Try to get filesystem info from Windows for this drive letter
-                        let mut cmd = Command::new("powershell.exe");
+                        let drive_key = if mount_str.ends_with('\\') {
+                            mount_str[..2].to_string()
+                        } else {
+                            mount_str.to_string()
+                        };
                         
-                        #[cfg(target_os = "windows")]
-                        {
-                            use std::os::windows::process::CommandExt;
-                            const CREATE_NO_WINDOW: u32 = 0x08000000;
-                            cmd.creation_flags(CREATE_NO_WINDOW);
-                        }
-                        
-                        if let Ok(output) = cmd
-                            .args(&[
-                                "-NoProfile",
-                                "-Command",
-                                &format!("(Get-Volume -DriveLetter '{}' -ErrorAction SilentlyContinue).FileSystemType", drive_letter)
-                            ])
-                            .output() {
-                            if output.status.success() {
-                                let fs_type = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
-                                if !fs_type.is_empty() && fs_type != "unknown" {
-                                    // Windows might report "RAW" for ext4 or other unrecognized filesystems
-                                    // We'll need admin rights to properly detect these
-                                    if fs_type == "raw" {
-                                        log::info!("Windows reports RAW filesystem for drive {} - might be ext4 or other Linux filesystem", drive_letter);
-                                        // Don't set filesystem, keep trying other methods
-                                    } else {
-                                        filesystem = Some(fs_type);
-                                        log::info!("Got filesystem type '{}' from Windows for drive {}", 
-                                                 filesystem.as_ref().unwrap(), drive_letter);
-                                        break;
-                                    }
-                                }
+                        // Look up in our pre-fetched map
+                        if let Some(fs_type) = volume_filesystems.get(&drive_key) {
+                            // Windows might report "raw" for ext4 or other unrecognized filesystems
+                            if fs_type == "raw" {
+                                log::info!("Windows reports RAW filesystem for {} - might be ext4 or other Linux filesystem", drive_key);
+                                // Don't set filesystem, keep trying other methods
+                            } else {
+                                filesystem = Some(fs_type.clone());
+                                log::info!("Got filesystem type '{}' from batch query for {}", fs_type, drive_key);
+                                break;
                             }
                         }
                     }

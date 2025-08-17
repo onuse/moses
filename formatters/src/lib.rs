@@ -6,6 +6,7 @@ pub mod registration;
 pub mod safe_ext4;
 pub mod utils;
 pub mod detection;
+pub mod device_reader;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;

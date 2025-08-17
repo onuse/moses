@@ -13,7 +13,7 @@ use super::reader::{
 
 /// Improved exFAT filesystem reader with persistent file handle
 pub struct ExFatReaderImproved {
-    device: Device,
+    _device: Device,
     boot_sector: ExFatBootSector,
     bytes_per_cluster: u32,
     cluster_heap_offset: u64,
@@ -44,7 +44,7 @@ impl ExFatReaderImproved {
         
         let mut file_handle = match open_device_with_fallback(&device) {
             Ok(handle) => handle,
-            Err(e) => {
+            Err(_e) => {
                 // If that fails and we were using a volume path, try the physical disk
                 info!("Failed with volume path, trying physical disk: {}", original_id);
                 device.mount_points.clear(); // Force use of physical disk path
@@ -135,7 +135,7 @@ impl ExFatReaderImproved {
         info!("  Root directory cluster: {}", first_cluster_of_root);
         
         Ok(ExFatReaderImproved {
-            device,
+            _device: device,
             boot_sector,
             bytes_per_cluster,
             cluster_heap_offset,

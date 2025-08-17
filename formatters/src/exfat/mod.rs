@@ -3,10 +3,11 @@
 pub mod formatter;
 pub mod reader;
 pub mod reader_improved;
+pub mod reader_aligned;
 
 pub use formatter::ExFatFormatter;
-// Use the improved reader that keeps file handle open
-pub use reader_improved::ExFatReaderImproved as ExFatReader;
+// Use the aligned reader that leverages our common abstraction
+pub use reader_aligned::ExFatReaderAligned as ExFatReader;
 
 use crate::detection::FilesystemDetector;
 

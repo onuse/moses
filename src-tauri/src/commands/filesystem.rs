@@ -4,6 +4,7 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
+use moses_formatters::device_reader::FilesystemReader;
 
 // Cache for filesystem types to avoid repeated admin prompts
 static FILESYSTEM_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
@@ -304,14 +305,9 @@ async fn read_exfat_directory(
     let mut reader = ExFatReader::new(device.clone())
         .map_err(|e| format!("Failed to open exFAT filesystem: {:?}", e))?;
     
-    // Read directory
-    let entries = if path == "/" || path.is_empty() {
-        reader.read_root()
-            .map_err(|e| format!("Failed to read root directory: {:?}", e))?
-    } else {
-        reader.read_directory(path)
-            .map_err(|e| format!("Failed to read directory {}: {:?}", path, e))?
-    };
+    // Read directory using the common trait method
+    let entries = reader.list_directory(path)
+        .map_err(|e| format!("Failed to read directory {}: {:?}", path, e))?;
     
     // Convert to our format
     let mut total_size = 0u64;
