@@ -20,7 +20,7 @@ name = "moses"
 path = "src/main.rs"
 
 [[bin]]
-name = "moses-formatter"
+name = "moses-worker"
 path = "src/bin/moses-elevated-worker.rs"
 
 [build-dependencies]

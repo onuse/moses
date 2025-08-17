@@ -33,6 +33,16 @@
       </button>
       
       <button 
+        class="tool-btn" 
+        @click="analyzeFilesystem" 
+        :disabled="!selectedDevice"
+        title="Analyze filesystem boot sector and signatures"
+      >
+        <span class="tool-icon">🔍</span>
+        Analyze
+      </button>
+      
+      <button 
         v-if="viewMode === 'browse'" 
         class="tool-btn" 
         @click="viewMode = 'format'" 
@@ -324,6 +334,31 @@
     <!-- Log Console -->
     <LogConsole ref="logConsole" />
     
+    <!-- Analysis Modal -->
+    <div v-if="showAnalysisModal" class="modal-overlay" @click="closeAnalysisModal">
+      <div class="modal-content analysis-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Filesystem Analysis</h3>
+          <button class="modal-close" @click="closeAnalysisModal">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="analysisLoading" class="analysis-loading">
+            <div class="spinner"></div>
+            <p>Analyzing filesystem...</p>
+          </div>
+          <pre v-else class="analysis-result">{{ analysisResult }}</pre>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="copyAnalysisToClipboard">
+            Copy to Clipboard
+          </button>
+          <button class="btn btn-primary" @click="closeAnalysisModal">
+            Close
+          </button>
+        </div>
+      </div>
+    </div>
+    
     <!-- Status Bar -->
     <div class="status-bar">
       <div class="status-item">
@@ -392,6 +427,11 @@ const progressStatus = ref('')
 const formatTime = ref('00:00')
 const currentOperation = ref('')
 const viewMode = ref<'browse' | 'format'>('browse') // Default to browse mode
+
+// Analysis modal state
+const showAnalysisModal = ref(false)
+const analysisLoading = ref(false)
+const analysisResult = ref('')
 
 const formatOptions = ref<FormatOptions>({
   filesystem_type: '',
@@ -616,6 +656,81 @@ const checkElevation = async () => {
   } catch (error) {
     console.error('Failed to check elevation status:', error)
     return false
+  }
+}
+
+const analyzeFilesystem = async () => {
+  if (!selectedDevice.value) {
+    alert('Please select a drive to analyze')
+    return
+  }
+  
+  showAnalysisModal.value = true
+  analysisLoading.value = true
+  analysisResult.value = ''
+  
+  logConsole.value?.info(`Analyzing filesystem on ${selectedDevice.value.name}...`, 'Analyzer')
+  
+  try {
+    const result = await invoke('analyze_filesystem', {
+      deviceId: selectedDevice.value.id
+    })
+    
+    analysisResult.value = result as string
+    logConsole.value?.info('Filesystem analysis completed', 'Analyzer')
+  } catch (error: any) {
+    const errorStr = error.toString()
+    
+    // Check if elevation is required
+    if (errorStr.includes('ELEVATION_REQUIRED')) {
+      logConsole.value?.info('Elevation required, requesting administrator privileges...', 'Analyzer')
+      
+      try {
+        // Try the elevated version
+        const result = await invoke('analyze_filesystem_elevated', {
+          deviceId: selectedDevice.value.id
+        })
+        
+        analysisResult.value = result as string
+        logConsole.value?.info('Filesystem analysis completed with elevation', 'Analyzer')
+      } catch (elevatedError: any) {
+        console.error('Failed to analyze with elevation:', elevatedError)
+        analysisResult.value = `Failed to analyze filesystem even with elevation:\n${elevatedError}`
+        logConsole.value?.error(`Analysis failed: ${elevatedError}`, 'Analyzer')
+      }
+    } else if (errorStr.includes('os error 5') || errorStr.includes('Access is denied') || 
+               errorStr.includes('Åtkomst nekad')) {
+      // Other access denied errors
+      analysisResult.value = `Administrator privileges required\n\n` +
+        `To analyze this filesystem, please:\n` +
+        `1. Close Moses\n` +
+        `2. Right-click on Moses\n` +
+        `3. Select "Run as administrator"\n` +
+        `4. Try the analysis again\n\n` +
+        `This is required to read raw device sectors.`
+      
+      logConsole.value?.error('Analysis requires administrator privileges', 'Analyzer')
+    } else {
+      console.error('Failed to analyze filesystem:', error)
+      analysisResult.value = `Failed to analyze filesystem:\n${error}`
+      logConsole.value?.error(`Analysis failed: ${error}`, 'Analyzer')
+    }
+  } finally {
+    analysisLoading.value = false
+  }
+}
+
+const closeAnalysisModal = () => {
+  showAnalysisModal.value = false
+}
+
+const copyAnalysisToClipboard = async () => {
+  try {
+    await navigator.clipboard.writeText(analysisResult.value)
+    logConsole.value?.info('Analysis copied to clipboard', 'Analyzer')
+  } catch (error) {
+    console.error('Failed to copy to clipboard:', error)
+    logConsole.value?.error('Failed to copy to clipboard', 'Analyzer')
   }
 }
 
@@ -1535,5 +1650,139 @@ body {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-secondary);
+}
+
+/* Modal Styles */
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: var(--bg-secondary);
+  border-radius: 8px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
+  max-width: 80%;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.analysis-modal {
+  width: 900px;
+}
+
+.modal-header {
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h3 {
+  color: var(--text-primary);
+  font-size: 16px;
+  font-weight: 500;
+}
+
+.modal-close {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+}
+
+.modal-close:hover {
+  background: var(--bg-hover);
+}
+
+.modal-body {
+  flex: 1;
+  overflow: auto;
+  padding: 20px;
+}
+
+.analysis-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 40px;
+}
+
+.analysis-loading .spinner {
+  width: 40px;
+  height: 40px;
+  border: 3px solid var(--border-color);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin-bottom: 16px;
+}
+
+.analysis-result {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-primary);
+  background: var(--bg-primary);
+  padding: 16px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.modal-footer {
+  padding: 16px 20px;
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.btn {
+  padding: 8px 16px;
+  border-radius: 4px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  border: none;
+}
+
+.btn-primary {
+  background: var(--accent);
+  color: white;
+}
+
+.btn-primary:hover {
+  background: var(--accent-hover);
+}
+
+.btn-secondary {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-hover);
 }
 </style>

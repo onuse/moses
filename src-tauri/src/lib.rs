@@ -1,7 +1,7 @@
 use moses_core::{Device, DeviceManager, FilesystemFormatter, FormatOptions, SimulationReport};
 
 use moses_platform::PlatformDeviceManager;
-use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
+use moses_formatters::{NtfsFormatter, Fat16Formatter, Fat32Formatter, ExFatFormatter};
 
 #[cfg(target_os = "windows")]
 use moses_platform::windows::elevation::is_elevated;
@@ -61,7 +61,7 @@ async fn execute_format_elevated(
             .map_err(|e| format!("Failed to get executable path: {}", e))?
             .parent()
             .ok_or_else(|| "Failed to get executable directory".to_string())?
-            .join("moses-formatter.exe");
+            .join("moses-worker.exe");
         
         // Serialize device and options to JSON
         let device_json = serde_json::to_string(&device)
@@ -78,6 +78,7 @@ async fn execute_format_elevated(
         // If we're already elevated, run the worker directly
         if is_elevated() {
             let output = Command::new(&worker_exe)
+                .arg("format")
                 .arg(&device_json)
                 .arg(&options_json)
                 .output()
@@ -115,7 +116,7 @@ async fn execute_format_elevated(
                 # Start the worker with elevation
                 $startInfo = New-Object System.Diagnostics.ProcessStartInfo
                 $startInfo.FileName = $worker
-                $startInfo.Arguments = "`"$deviceFile`" `"$optionsFile`""
+                $startInfo.Arguments = "format `"$deviceFile`" `"$optionsFile`""
                 $startInfo.Verb = 'runas'
                 $startInfo.UseShellExecute = $true
                 $startInfo.RedirectStandardOutput = $false
@@ -223,6 +224,13 @@ async fn simulate_format(
         
         "ntfs" => {
             let formatter = NtfsFormatter;
+            formatter.dry_run(&device, &options)
+                .await
+                .map_err(|e| format!("Simulation failed: {}", e))
+        },
+        
+        "fat16" => {
+            let formatter = Fat16Formatter;
             formatter.dry_run(&device, &options)
                 .await
                 .map_err(|e| format!("Simulation failed: {}", e))
@@ -405,6 +413,32 @@ async fn execute_format(
             Ok(format!("Successfully formatted {} as NTFS", device.name))
         },
         
+        "fat16" => {
+            let formatter = Fat16Formatter;
+            
+            // Validate options
+            formatter.validate_options(&options)
+                .await
+                .map_err(|e| format!("Invalid options: {}", e))?;
+            
+            // Check if device can be formatted
+            if !formatter.can_format(&device) {
+                return Err("Device cannot be formatted (system device or too large for FAT16)".to_string());
+            }
+            
+            // Check size limit
+            if device.size > 4 * 1024_u64.pow(3) {
+                return Err("Device too large for FAT16. Maximum size is 4GB. Consider using FAT32 or exFAT.".to_string());
+            }
+            
+            // Execute the format
+            formatter.format(&device, &options)
+                .await
+                .map_err(|e| format!("Format failed: {}", e))?;
+            
+            Ok(format!("Successfully formatted {} as FAT16", device.name))
+        },
+        
         "fat32" => {
             let formatter = Fat32Formatter;
             
@@ -580,7 +614,9 @@ pub fn run() {
             commands::filesystem::read_file,
             commands::filesystem::copy_files,
             commands::filesystem::detect_filesystem_elevated,
-            commands::filesystem::request_elevated_filesystem_detection
+            commands::filesystem::request_elevated_filesystem_detection,
+            commands::filesystem::analyze_filesystem,
+            commands::filesystem::analyze_filesystem_elevated
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

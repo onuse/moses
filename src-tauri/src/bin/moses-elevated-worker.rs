@@ -7,6 +7,7 @@ use std::path::Path;
 use std::io::Write;
 use moses_core::{Device, FormatOptions, FilesystemFormatter};
 use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
+use moses_formatters::diagnostics::analyze_unknown_filesystem;
 #[cfg(target_os = "windows")]
 use moses_formatters::{Ext2Formatter, Ext3Formatter};
 use serde_json;
@@ -190,9 +191,9 @@ fn run_worker() {
         log_to_file(&format!("Arg[{}]: {}", i, arg));
     }
     
-    if args.len() < 3 {
+    if args.len() < 2 {
         let error_msg = format!(
-            "Error: Insufficient arguments\nUsage: moses-formatter <device-json-file> <options-json-file>\nReceived {} arguments:\n{}",
+            "Error: Insufficient arguments\nUsage: moses-formatter <command> [args...]\nCommands: format, analyze\nReceived {} arguments:\n{}",
             args.len(),
             args.join("\n")
         );
@@ -204,10 +205,52 @@ fn run_worker() {
         std::process::exit(1);
     }
     
-    // Parse device and options from JSON
-    // We expect file paths from the parent process
-    let device_path = &args[1];
-    let options_path = &args[2];
+    // Check command type
+    let command = &args[1];
+    log_to_file(&format!("Command: {}", command));
+    
+    match command.as_str() {
+        "format" => {
+            // Format command needs device and options files
+            if args.len() < 4 {
+                let error_msg = "Error: format command requires <device-json-file> <options-json-file>";
+                log_to_file(error_msg);
+                #[cfg(target_os = "windows")]
+                show_error_message("Invalid Arguments", error_msg);
+                std::process::exit(1);
+            }
+            
+            let device_path = &args[2];
+            let options_path = &args[3];
+            handle_format(device_path, options_path);
+        }
+        "analyze" => {
+            // Analyze command needs device file
+            if args.len() < 3 {
+                let error_msg = "Error: analyze command requires <device-json-file>";
+                log_to_file(error_msg);
+                #[cfg(target_os = "windows")]
+                show_error_message("Invalid Arguments", error_msg);
+                std::process::exit(1);
+            }
+            
+            let device_path = &args[2];
+            handle_analyze(device_path);
+        }
+        _ => {
+            let error_msg = format!("Unknown command: {}", command);
+            log_to_file(&error_msg);
+            #[cfg(target_os = "windows")]
+            show_error_message("Invalid Command", &error_msg);
+            std::process::exit(1);
+        }
+    }
+}
+
+fn handle_format(device_path: &str, options_path: &str) {
+    // Original format handling code
+    let device_path = device_path;
+    let options_path = options_path;
     
     log_to_file(&format!("Device file path: {}", device_path));
     log_to_file(&format!("Options file path: {}", options_path));
@@ -322,9 +365,10 @@ fn run_worker() {
             log_to_file(&format!("Format failed: {}", e));
             
             // Also show the log file location in the error
+            let log_path = unsafe { LOG_FILE_PATH.as_ref().map(|p| p.display().to_string()).unwrap_or_else(|| "unknown".to_string()) };
             let error_with_log = format!(
                 "Format failed: {}\n\nCheck log file for details:\n{}", 
-                e, log_file_path.display()
+                e, log_path
             );
             
             #[cfg(target_os = "windows")]
@@ -553,6 +597,84 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
         
         _ => {
             Err(format!("Unsupported filesystem type: {}", options.filesystem_type))
+        }
+    }
+}
+
+fn handle_analyze(device_path: &str) {
+    log_to_file(&format!("Analyzing device from file: {}", device_path));
+    
+    // Check if file exists
+    if !Path::new(device_path).exists() {
+        let error_msg = format!("Device file not found: {}", device_path);
+        log_to_file(&error_msg);
+        
+        #[cfg(target_os = "windows")]
+        show_error_message("File Not Found", &error_msg);
+        
+        std::process::exit(1);
+    }
+    
+    // Read device JSON from file
+    let device_json = match fs::read_to_string(device_path) {
+        Ok(json) => json,
+        Err(e) => {
+            let error_msg = format!("Failed to read device file: {}", e);
+            log_to_file(&error_msg);
+            
+            #[cfg(target_os = "windows")]
+            show_error_message("Read Error", &error_msg);
+            
+            std::process::exit(1);
+        }
+    };
+    
+    // Parse device from JSON
+    let device: Device = match serde_json::from_str(&device_json) {
+        Ok(dev) => dev,
+        Err(e) => {
+            let error_msg = format!("Failed to parse device JSON: {}", e);
+            log_to_file(&error_msg);
+            
+            #[cfg(target_os = "windows")]
+            show_error_message("Parse Error", &error_msg);
+            
+            std::process::exit(1);
+        }
+    };
+    
+    log_to_file(&format!("Analyzing device: {} ({})", device.name, device.id));
+    
+    // Perform the analysis
+    match analyze_unknown_filesystem(&device) {
+        Ok(report) => {
+            log_to_file("Analysis completed successfully");
+            
+            // Write result to temp file for parent process to read
+            let result_file = env::temp_dir().join(format!("moses_analysis_result_{}.txt", std::process::id()));
+            if let Err(e) = fs::write(&result_file, &report) {
+                let error_msg = format!("Failed to write result file: {}", e);
+                log_to_file(&error_msg);
+                
+                #[cfg(target_os = "windows")]
+                show_error_message("Write Error", &error_msg);
+                
+                std::process::exit(1);
+            }
+            
+            // Output the result file path for parent process
+            println!("{}", result_file.display());
+            log_to_file(&format!("Result written to: {}", result_file.display()));
+            std::process::exit(0);
+        }
+        Err(e) => {
+            let error_msg = format!("Analysis failed: {:?}", e);
+            log_to_file(&error_msg);
+            
+            #[cfg(target_os = "windows")]
+            show_error_message("Analysis Failed", &error_msg);
+            
+            std::process::exit(1);
         }
     }
 }

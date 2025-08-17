@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use moses_formatters::device_reader::FilesystemReader;
+use moses_formatters::diagnostics::analyze_unknown_filesystem;
 
 // Cache for filesystem types to avoid repeated admin prompts
 static FILESYSTEM_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
@@ -85,6 +86,9 @@ pub async fn read_directory(
     match filesystem.as_str() {
         "ext4" | "ext3" | "ext2" => {
             read_ext_directory(&device, &path, &filesystem).await
+        },
+        "fat16" => {
+            read_fat16_directory(&device, &path).await
         },
         "fat32" | "vfat" => {
             read_fat32_directory(&device, &path).await
@@ -235,6 +239,56 @@ async fn read_ext_file(
     {
         Err("ext4 reading not yet implemented on this platform".to_string())
     }
+}
+
+async fn read_fat16_directory(
+    device: &Device,
+    path: &str,
+) -> Result<DirectoryListing, String> {
+    use moses_formatters::Fat16Reader;
+    
+    log::info!("Reading FAT16 directory: {} on device {}", path, device.id);
+    
+    // Create reader
+    let mut reader = Fat16Reader::new(device.clone())
+        .map_err(|e| format!("Failed to open FAT16 filesystem: {:?}", e))?;
+    
+    // Read directory
+    let entries = reader.list_directory(path)
+        .map_err(|e| format!("Failed to read directory {}: {:?}", path, e))?;
+    
+    // Convert to our format
+    let mut total_size = 0u64;
+    let converted_entries: Vec<DirectoryEntry> = entries.into_iter().map(|entry| {
+        if !entry.is_directory {
+            total_size += entry.size;
+        }
+        DirectoryEntry {
+            name: entry.name.clone(),
+            path: if path == "/" || path.is_empty() {
+                format!("/{}", entry.name)
+            } else {
+                format!("{}/{}", path.trim_end_matches('/'), entry.name)
+            },
+            entry_type: if entry.is_directory {
+                EntryType::Directory
+            } else {
+                EntryType::File
+            },
+            size: if entry.is_directory { None } else { Some(entry.size) },
+            modified: None,
+            created: None,
+            permissions: None,
+        }
+    }).collect();
+    
+    let item_count = converted_entries.len();
+    Ok(DirectoryListing {
+        path: path.to_string(),
+        entries: converted_entries,
+        total_size,
+        item_count,
+    })
 }
 
 async fn read_fat32_directory(
@@ -474,6 +528,206 @@ pub async fn request_elevated_filesystem_detection(
     #[cfg(not(target_os = "windows"))]
     {
         Err("Filesystem detection not implemented for this platform".to_string())
+    }
+}
+
+/// Analyze an unknown filesystem and return diagnostic information
+#[tauri::command]
+pub async fn analyze_filesystem(
+    device_id: String,
+) -> Result<String, String> {
+    log::info!("Analyzing filesystem on device: {}", device_id);
+    
+    // Check if we're on Windows and need elevation
+    #[cfg(target_os = "windows")]
+    {
+        use moses_platform::windows::elevation::is_elevated;
+        
+        // First try without elevation (in case we already have admin rights)
+        let device = get_device(&device_id)
+            .ok_or_else(|| format!("Device {} not found", device_id))?;
+        
+        // Try the analysis
+        match analyze_unknown_filesystem(&device) {
+            Ok(report) => {
+                log::info!("Filesystem analysis completed successfully");
+                return Ok(report);
+            }
+            Err(e) => {
+                // Check if it's an access denied error
+                let error_str = format!("{:?}", e);
+                if error_str.contains("os error 5") || error_str.contains("Access is denied") {
+                    log::info!("Analysis requires elevation, checking admin status");
+                    
+                    if !is_elevated() {
+                        // Return special error that UI can handle
+                        return Err("ELEVATION_REQUIRED".to_string());
+                    }
+                }
+                
+                log::error!("Failed to analyze filesystem: {:?}", e);
+                return Err(format!("Failed to analyze filesystem: {:?}", e));
+            }
+        }
+    }
+    
+    // Non-Windows platforms
+    #[cfg(not(target_os = "windows"))]
+    {
+        let device = get_device(&device_id)
+            .ok_or_else(|| format!("Device {} not found", device_id))?;
+        
+        match analyze_unknown_filesystem(&device) {
+            Ok(report) => {
+                log::info!("Filesystem analysis completed successfully");
+                Ok(report)
+            }
+            Err(e) => {
+                log::error!("Failed to analyze filesystem: {:?}", e);
+                Err(format!("Failed to analyze filesystem: {:?}", e))
+            }
+        }
+    }
+}
+
+/// Analyze filesystem with elevation (Windows only)
+#[tauri::command]
+pub async fn analyze_filesystem_elevated(
+    device_id: String,
+) -> Result<String, String> {
+    log::info!("Requesting elevated analysis for device: {}", device_id);
+    
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+        use std::env;
+        use std::fs;
+        use moses_platform::windows::elevation::is_elevated;
+        use std::os::windows::process::CommandExt;
+        
+        // Get device info
+        let device = get_device(&device_id)
+            .ok_or_else(|| format!("Device {} not found", device_id))?;
+        
+        // Get the path to the elevated worker executable
+        let worker_exe = env::current_exe()
+            .map_err(|e| format!("Failed to get executable path: {}", e))?
+            .parent()
+            .ok_or_else(|| "Failed to get executable directory".to_string())?
+            .join("moses-worker.exe");
+        
+        // Serialize device to JSON and write to temp file
+        let device_json = serde_json::to_string(&device)
+            .map_err(|e| format!("Failed to serialize device: {}", e))?;
+        
+        let temp_dir = env::temp_dir();
+        let device_file = temp_dir.join(format!("moses_device_{}.json", std::process::id()));
+        fs::write(&device_file, &device_json)
+            .map_err(|e| format!("Failed to write device file: {}", e))?;
+        
+        // If already elevated, run directly
+        if is_elevated() {
+            let output = Command::new(&worker_exe)
+                .arg("analyze")
+                .arg(&device_file)
+                .output()
+                .map_err(|e| format!("Failed to run worker: {}", e))?;
+            
+            // Clean up temp file
+            let _ = fs::remove_file(&device_file);
+            
+            if output.status.success() {
+                // The worker outputs the result file path
+                let result_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                
+                // Read the result file
+                let result = fs::read_to_string(&result_path)
+                    .map_err(|e| format!("Failed to read result: {}", e))?;
+                
+                // Clean up result file
+                let _ = fs::remove_file(&result_path);
+                
+                return Ok(result);
+            } else {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                return Err(format!("Analysis failed: {}", stderr));
+            }
+        }
+        
+        // Need elevation - use PowerShell to request UAC using the worker
+        let ps_script = format!(
+            r#"
+            $worker = '{}'
+            $deviceFile = '{}'
+            
+            # Start the worker with elevation
+            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $startInfo.FileName = $worker
+            $startInfo.Arguments = "analyze `"$deviceFile`""
+            $startInfo.Verb = 'runas'
+            $startInfo.UseShellExecute = $true
+            $startInfo.RedirectStandardOutput = $false
+            $startInfo.RedirectStandardError = $false
+            
+            try {{
+                $process = [System.Diagnostics.Process]::Start($startInfo)
+                $process.WaitForExit()
+                
+                # Clean up temp file
+                Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
+                
+                if ($process.ExitCode -eq 0) {{
+                    # Look for the result file created by the worker
+                    $resultFiles = Get-ChildItem $env:TEMP -Filter "moses_analysis_result_*.txt" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+                    if ($resultFiles) {{
+                        $content = Get-Content -Path $resultFiles[0].FullName -Raw
+                        Remove-Item -Path $resultFiles[0].FullName
+                        Write-Output $content
+                        exit 0
+                    }} else {{
+                        Write-Error "Analysis completed but no result file found"
+                        exit 1
+                    }}
+                }} else {{
+                    Write-Error "Analysis failed with exit code: $($process.ExitCode)"
+                    exit 1
+                }}
+            }} catch {{
+                Write-Error "Failed to start elevated worker: $_"
+                # Clean up temp file on error
+                Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
+                exit 1
+            }}
+            "#,
+            worker_exe.display(),
+            device_file.display()
+        );
+        
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        
+        let output = Command::new("powershell")
+            .args(&[
+                "-NoProfile",
+                "-ExecutionPolicy", "Bypass",
+                "-Command", &ps_script
+            ])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output()
+            .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
+        
+        if output.status.success() {
+            let result = String::from_utf8_lossy(&output.stdout);
+            Ok(result.trim().to_string())
+        } else {
+            let error = String::from_utf8_lossy(&output.stderr);
+            Err(format!("Analysis failed: {}", error.trim()))
+        }
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        // On non-Windows, just call the regular analyze
+        analyze_filesystem(device_id).await
     }
 }
 

@@ -1,5 +1,6 @@
 pub mod ext4;
 pub mod ntfs;
+pub mod fat16;
 pub mod fat32;
 pub mod exfat;
 pub mod registration;
@@ -7,6 +8,7 @@ pub mod safe_ext4;
 pub mod utils;
 pub mod detection;
 pub mod device_reader;
+pub mod diagnostics;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;
@@ -30,6 +32,7 @@ pub mod ntfs_windows;
 // Re-export formatters and readers
 pub use ext4::Ext4Formatter;
 pub use ntfs::{NtfsFormatter, NtfsReader};
+pub use fat16::{Fat16Formatter, Fat16Reader};
 pub use fat32::{Fat32Formatter, Fat32Reader};
 pub use exfat::{ExFatFormatter, ExFatReader};
 
