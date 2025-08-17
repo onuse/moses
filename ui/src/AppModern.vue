@@ -32,7 +32,31 @@
         Simulate
       </button>
       
-      <button class="tool-btn accent" @click="executeFormat" :disabled="!canFormat">
+      <button 
+        v-if="viewMode === 'browse'" 
+        class="tool-btn" 
+        @click="viewMode = 'format'" 
+        :disabled="!selectedDevice || selectedDevice.is_system"
+      >
+        <span class="tool-icon">🔧</span>
+        Format Mode
+      </button>
+      
+      <button 
+        v-else-if="viewMode === 'format'" 
+        class="tool-btn" 
+        @click="viewMode = 'browse'"
+      >
+        <span class="tool-icon">📁</span>
+        Browse Mode
+      </button>
+      
+      <button 
+        v-if="viewMode === 'format'" 
+        class="tool-btn accent" 
+        @click="executeFormat" 
+        :disabled="!canFormat"
+      >
         <span class="tool-icon">▶</span>
         Format Drive
       </button>
@@ -125,20 +149,29 @@
         <!-- No Selection State -->
         <div v-if="!selectedDevice" class="empty-panel">
           <div class="empty-icon">💾</div>
-          <h2>Select a drive to format</h2>
-          <p>Choose a removable drive from the sidebar</p>
+          <h2>Select a drive to explore</h2>
+          <p>Choose a drive from the sidebar to browse files or format</p>
         </div>
 
-        <!-- System Drive Warning -->
-        <div v-else-if="selectedDevice.is_system" class="warning-panel">
+        <!-- File Browser View (Default) -->
+        <FileBrowser 
+          v-else-if="viewMode === 'browse' && selectedDevice && !selectedDevice.is_system" 
+          :drive="selectedDeviceWithFs"
+          @copy-files="handleCopyFiles"
+          @export-files="handleExportFiles"
+          @show-properties="handleShowProperties"
+        />
+
+        <!-- System Drive Warning (Browse Mode) -->
+        <div v-else-if="viewMode === 'browse' && selectedDevice?.is_system" class="warning-panel">
           <div class="warning-icon">🛡️</div>
           <h2>System Drive Protected</h2>
-          <p>This drive contains your operating system and cannot be formatted.</p>
-          <p class="warning-note">Moses protects system drives to prevent accidental data loss.</p>
+          <p>Browsing system drives coming soon.</p>
+          <p class="warning-note">You can still format removable drives.</p>
         </div>
 
-        <!-- Format Options -->
-        <div v-else class="format-content">
+        <!-- Format Options (Format Mode) -->
+        <div v-else-if="viewMode === 'format' && selectedDevice && !selectedDevice.is_system" class="format-content">
           <!-- Header -->
           <div class="content-header">
             <h2>{{ selectedDevice.name }}</h2>
@@ -160,10 +193,14 @@
                       <optgroup label="Recommended">
                         <option value="exfat">exFAT - Universal, no size limits</option>
                       </optgroup>
-                      <optgroup label="Other Options">
+                      <optgroup label="Windows">
                         <option value="ntfs">NTFS - Windows native</option>
                         <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
-                        <option value="ext4">EXT4 - Linux native</option>
+                      </optgroup>
+                      <optgroup label="Linux (ext family)">
+                        <option value="ext4">ext4 - Modern Linux</option>
+                        <option value="ext3">ext3 - Linux with journal</option>
+                        <option value="ext2">ext2 - Simple Linux (2TB limit)</option>
                       </optgroup>
                     </select>
                   </div>
@@ -309,6 +346,7 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import LogConsole from './components/LogConsole.vue'
+import FileBrowser from './components/FileBrowser.vue'
 
 interface Device {
   id: string
@@ -353,6 +391,7 @@ const formatProgress = ref(0)
 const progressStatus = ref('')
 const formatTime = ref('00:00')
 const currentOperation = ref('')
+const viewMode = ref<'browse' | 'format'>('browse') // Default to browse mode
 
 const formatOptions = ref<FormatOptions>({
   filesystem_type: '',
@@ -386,6 +425,18 @@ const canFormat = computed(() =>
   !isFormatting.value &&
   !isSimulating.value
 )
+
+// Device with filesystem info for FileBrowser
+const selectedDeviceWithFs = computed(() => {
+  if (!selectedDevice.value) return null
+  
+  // Use the filesystem already detected by the backend
+  return {
+    ...selectedDevice.value,
+    filesystem: selectedDevice.value.filesystem || 'unknown',
+    readable: isFilesystemReadable(selectedDevice.value)
+  }
+})
 
 const maxLabelLength = computed(() => {
   switch (formatOptions.value.filesystem_type) {
@@ -454,6 +505,46 @@ const selectDevice = (device: Device) => {
   if (isFormatting.value) return
   selectedDevice.value = device
   simulationReport.value = null
+  // Default to browse mode when selecting a new device
+  viewMode.value = 'browse'
+}
+
+// Detect filesystem type from device (placeholder - would call backend)
+const detectFilesystem = (device: Device): string => {
+  // This would actually call a backend method to detect the filesystem
+  // For now, return a placeholder
+  if (device.mount_points.length > 0) {
+    const mountPoint = device.mount_points[0].toLowerCase()
+    if (mountPoint.includes('c:') || mountPoint.includes('windows')) {
+      return 'ntfs'
+    } else if (mountPoint.includes('boot')) {
+      return 'fat32'
+    }
+  }
+  return 'unknown'
+}
+
+// Check if we can read this filesystem
+const isFilesystemReadable = (device: Device): boolean => {
+  const fs = device.filesystem || 'unknown'
+  // We can read ext2/3/4, FAT32, and exFAT so far
+  return ['ext2', 'ext3', 'ext4', 'fat32', 'exfat'].includes(fs.toLowerCase())
+}
+
+// Handle file operations from FileBrowser
+const handleCopyFiles = (event: any) => {
+  console.log('Copy files:', event)
+  // TODO: Implement cross-filesystem copy
+}
+
+const handleExportFiles = (event: any) => {
+  console.log('Export files:', event)
+  // TODO: Implement file export
+}
+
+const handleShowProperties = (file: any) => {
+  console.log('Show properties:', file)
+  // TODO: Show file properties dialog
 }
 
 const toggleTheme = () => {

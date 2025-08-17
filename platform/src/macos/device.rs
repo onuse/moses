@@ -22,7 +22,7 @@ impl DeviceManager for MacOSDeviceManager {
             }
 
             // Parse diskutil output here
-            // For now, return empty list
+            // For now, return empty list with filesystem field
             Ok(vec![])
         }
         

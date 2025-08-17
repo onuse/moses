@@ -4,6 +4,8 @@ pub mod fat32;
 pub mod exfat;
 pub mod registration;
 pub mod safe_ext4;
+pub mod utils;
+pub mod detection;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;
@@ -16,14 +18,19 @@ pub mod legacy;
 pub mod ext4_native;
 pub use ext4_native::Ext4NativeFormatter;
 
+// Extended ext family support (ext2/ext3) using ext4_native base
+// This doesn't modify ext4_native, just adds new formatters
+pub mod ext_family;
+pub use ext_family::{Ext2Formatter, Ext3Formatter};
+
 #[cfg(target_os = "windows")]
 pub mod ntfs_windows;
 
-// Re-export formatters
+// Re-export formatters and readers
 pub use ext4::Ext4Formatter;
-pub use ntfs::NtfsFormatter;
-pub use fat32::Fat32Formatter;
-pub use exfat::ExFatFormatter;
+pub use ntfs::{NtfsFormatter, NtfsReader};
+pub use fat32::{Fat32Formatter, Fat32Reader};
+pub use exfat::{ExFatFormatter, ExFatReader};
 
 #[cfg(target_os = "linux")]
 pub use ext4_linux::Ext4LinuxFormatter;

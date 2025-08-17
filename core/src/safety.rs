@@ -436,6 +436,7 @@ mod tests {
             mount_points: vec![PathBuf::from("C:\\")],
             is_removable: false,
             is_system: true,
+            filesystem: Some("ntfs".to_string()),
         };
         
         let mut check = SafetyCheck::new(&device, "test_formatter");
@@ -460,6 +461,7 @@ mod tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+            filesystem: Some("fat32".to_string()),
         };
         
         let mut check = SafetyCheck::new(&device, "test_formatter");

@@ -1,10 +1,11 @@
-// Ext4 filesystem verification after formatting
+// Ext filesystem verification after formatting (supports ext2/ext3/ext4)
 use crate::ext4_native::core::{
     structures::*,
     types::*,
     constants::*,
     checksum::crc32c_ext4,
     alignment::AlignedBuffer,
+    ext_config::ExtVersion,
 };
 use log::{debug, info, warn, error};
 use std::io::{Read, Seek, SeekFrom};
@@ -16,6 +17,7 @@ pub struct VerificationResult {
     pub errors: Vec<String>,
     pub warnings: Vec<String>,
     pub info: Vec<String>,
+    pub detected_version: Option<ExtVersion>,
 }
 
 impl VerificationResult {
@@ -25,6 +27,7 @@ impl VerificationResult {
             errors: Vec::new(),
             warnings: Vec::new(),
             info: Vec::new(),
+            detected_version: None,
         }
     }
     
@@ -45,10 +48,32 @@ impl VerificationResult {
     }
 }
 
-/// Verify ext4 filesystem on device
-pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<VerificationResult, Ext4Error> {
+/// Detect the ext filesystem version from superblock features
+pub fn detect_ext_version(sb: &Ext4Superblock) -> ExtVersion {
+    // Check feature flags to determine version
+    let has_journal = sb.s_feature_compat & EXT4_FEATURE_COMPAT_HAS_JOURNAL != 0;
+    let has_extents = sb.s_feature_incompat & EXT4_FEATURE_INCOMPAT_EXTENTS != 0;
+    let has_64bit = sb.s_feature_incompat & EXT4_FEATURE_INCOMPAT_64BIT != 0;
+    let has_metadata_csum = sb.s_feature_ro_compat & EXT4_FEATURE_RO_COMPAT_METADATA_CSUM != 0;
+    
+    // ext4 has extents or 64-bit or metadata checksums
+    if has_extents || has_64bit || has_metadata_csum {
+        ExtVersion::Ext4
+    }
+    // ext3 has journal but no ext4 features
+    else if has_journal {
+        ExtVersion::Ext3
+    }
+    // ext2 has neither journal nor ext4 features
+    else {
+        ExtVersion::Ext2
+    }
+}
+
+/// Verify ext filesystem on device (auto-detects ext2/ext3/ext4)
+pub fn verify_ext_filesystem<R: Read + Seek>(reader: &mut R) -> Result<VerificationResult, Ext4Error> {
     let mut result = VerificationResult::new();
-    info!("Starting ext4 filesystem verification");
+    info!("Starting ext filesystem verification");
     
     // Step 1: Read and verify superblock
     let mut sb_buffer = AlignedBuffer::<4096>::new();
@@ -69,8 +94,14 @@ pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<Verifica
     }
     result.add_info("Superblock magic number valid".to_string());
     
-    // Verify superblock checksum if enabled
-    if sb.has_feature_ro_compat(EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) {
+    // Detect filesystem version
+    let version = detect_ext_version(&sb);
+    result.detected_version = Some(version);
+    result.add_info(format!("Detected filesystem version: {:?}", version));
+    
+    // Verify superblock checksum if enabled (ext4 only)
+    if sb.has_feature_ro_compat(EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) && 
+       matches!(result.detected_version, Some(ExtVersion::Ext4)) {
         let stored_csum = sb.s_checksum;
         let mut sb_copy = sb;
         sb_copy.s_checksum = 0;
@@ -124,14 +155,56 @@ pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<Verifica
                               total_inodes - free_inodes, total_inodes));
     }
     
-    // Step 4: Verify required features
+    // Step 4: Verify version-specific features
     let incompat = sb.s_feature_incompat;
-    if incompat & EXT4_FEATURE_INCOMPAT_FILETYPE == 0 {
-        result.add_warning("FILETYPE feature not enabled (recommended for performance)".to_string());
-    }
+    let compat = sb.s_feature_compat;
+    let _ro_compat = sb.s_feature_ro_compat;
     
-    if incompat & EXT4_FEATURE_INCOMPAT_EXTENTS == 0 {
-        result.add_warning("EXTENTS feature not enabled (recommended for large files)".to_string());
+    match result.detected_version {
+        Some(ExtVersion::Ext2) => {
+            // ext2 should NOT have journal
+            if compat & EXT4_FEATURE_COMPAT_HAS_JOURNAL != 0 {
+                result.add_error("ext2 filesystem has journal feature (should be ext3)".to_string());
+            }
+            // ext2 should NOT have extents
+            if incompat & EXT4_FEATURE_INCOMPAT_EXTENTS != 0 {
+                result.add_error("ext2 filesystem has extents feature (should be ext4)".to_string());
+            }
+            // ext2 typically has 128-byte inodes
+            if sb.s_rev_level == 0 && sb.s_inode_size != 128 {
+                result.add_warning(format!("ext2 inode size is {} (expected 128)", sb.s_inode_size));
+            }
+        },
+        Some(ExtVersion::Ext3) => {
+            // ext3 MUST have journal
+            if compat & EXT4_FEATURE_COMPAT_HAS_JOURNAL == 0 {
+                result.add_error("ext3 filesystem missing journal feature".to_string());
+            }
+            // ext3 should NOT have extents
+            if incompat & EXT4_FEATURE_INCOMPAT_EXTENTS != 0 {
+                result.add_error("ext3 filesystem has extents feature (should be ext4)".to_string());
+            }
+            // ext3 should NOT have 64-bit feature
+            if incompat & EXT4_FEATURE_INCOMPAT_64BIT != 0 {
+                result.add_error("ext3 filesystem has 64-bit feature (should be ext4)".to_string());
+            }
+            // Verify journal inode
+            if sb.s_journal_inum != 8 {
+                result.add_warning(format!("ext3 journal inode is {} (expected 8)", sb.s_journal_inum));
+            }
+        },
+        Some(ExtVersion::Ext4) => {
+            // ext4 recommendations
+            if incompat & EXT4_FEATURE_INCOMPAT_FILETYPE == 0 {
+                result.add_warning("FILETYPE feature not enabled (recommended for performance)".to_string());
+            }
+            if incompat & EXT4_FEATURE_INCOMPAT_EXTENTS == 0 {
+                result.add_warning("EXTENTS feature not enabled (recommended for large files)".to_string());
+            }
+        },
+        None => {
+            result.add_error("Could not determine ext filesystem version".to_string());
+        }
     }
     
     // Step 5: Verify group descriptor table
@@ -147,8 +220,9 @@ pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<Verifica
         std::ptr::read_unaligned(gdt_buffer.as_ptr() as *const Ext4GroupDesc)
     };
     
-    // Verify group descriptor checksum if enabled
-    if sb.has_feature_ro_compat(EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) {
+    // Verify group descriptor checksum if enabled (ext4 with metadata_csum)
+    if sb.has_feature_ro_compat(EXT4_FEATURE_RO_COMPAT_METADATA_CSUM) && 
+       matches!(result.detected_version, Some(ExtVersion::Ext4)) {
         let stored_csum = gd.bg_checksum;
         let mut gd_copy = gd;
         gd_copy.bg_checksum = 0;
@@ -216,26 +290,32 @@ pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<Verifica
     Ok(result)
 }
 
-/// Verify filesystem on a device path (Windows)
-#[cfg(target_os = "windows")]
-pub fn verify_device(device_path: &str) -> Result<VerificationResult, Ext4Error> {
-    use std::os::windows::fs::OpenOptionsExt;
-    use winapi::um::winbase::FILE_FLAG_SEQUENTIAL_SCAN;
-    
-    // For verification, we don't need FILE_FLAG_NO_BUFFERING since we're only reading
-    // and buffered I/O is fine for reads. NO_BUFFERING requires sector-aligned operations
-    // which our verify_ext4_filesystem doesn't guarantee.
-    let mut file = std::fs::OpenOptions::new()
-        .read(true)
-        .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
-        .open(device_path)?;
-    
-    verify_ext4_filesystem(&mut file)
+/// Verify ext4 filesystem on device (compatibility wrapper)
+pub fn verify_ext4_filesystem<R: Read + Seek>(reader: &mut R) -> Result<VerificationResult, Ext4Error> {
+    verify_ext_filesystem(reader)
 }
 
-/// Verify filesystem on a device path (Unix)
-#[cfg(not(target_os = "windows"))]
+/// Verify filesystem on a device path
 pub fn verify_device(device_path: &str) -> Result<VerificationResult, Ext4Error> {
-    let mut file = std::fs::File::open(device_path)?;
-    verify_ext4_filesystem(&mut file)
+    #[cfg(target_os = "windows")]
+    {
+        use std::os::windows::fs::OpenOptionsExt;
+        use winapi::um::winbase::FILE_FLAG_SEQUENTIAL_SCAN;
+        
+        // For verification, we don't need FILE_FLAG_NO_BUFFERING since we're only reading
+        // and buffered I/O is fine for reads. NO_BUFFERING requires sector-aligned operations
+        // which our verify_ext_filesystem doesn't guarantee.
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .custom_flags(FILE_FLAG_SEQUENTIAL_SCAN)
+            .open(device_path)?;
+        
+        verify_ext_filesystem(&mut file)
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        let mut file = std::fs::File::open(device_path)?;
+        verify_ext_filesystem(&mut file)
+    }
 }

@@ -34,10 +34,12 @@ lazy_static = "1.4"
 chrono = "0.4"
 tauri = { version = "2.7.0", features = [] }
 tauri-plugin-log = "2"
+futures = "0.3"
 moses-core = { path = "../core" }
 moses-platform = { path = "../platform" }
 moses-formatters = { path = "../formatters" }
 tokio = { version = "1.34", features = ["full"] }
+once_cell = "1.19"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 libc = "0.2"

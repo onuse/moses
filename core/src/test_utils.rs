@@ -78,6 +78,7 @@ impl MockDeviceManager {
                     mount_points: vec![PathBuf::from("/")],
                     is_removable: false,
                     is_system: true,
+                    filesystem: Some("ntfs".to_string()),
                 },
                 Device {
                     id: "mock://usb/test-drive".to_string(),
@@ -87,6 +88,7 @@ impl MockDeviceManager {
                     mount_points: vec![],
                     is_removable: true,
                     is_system: false,
+                    filesystem: Some("fat32".to_string()),
                 },
             ],
             enumerate_call_count: Arc::new(Mutex::new(0)),
@@ -347,6 +349,7 @@ mod tests {
             mount_points: vec![],
             is_removable: false,
             is_system: true,
+            filesystem: Some("ntfs".to_string()),
         };
 
         let result = SafetyValidator::validate_device_safety(&system_drive);
@@ -364,6 +367,7 @@ mod tests {
             mount_points: vec![PathBuf::from("C:")],
             is_removable: false,
             is_system: false,
+            filesystem: Some("ntfs".to_string()),
         };
 
         let result = SafetyValidator::validate_device_safety(&critical_drive);
@@ -381,6 +385,7 @@ mod tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+            filesystem: Some("fat32".to_string()),
         };
 
         let result = SafetyValidator::validate_device_safety(&safe_usb);

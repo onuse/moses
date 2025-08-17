@@ -19,6 +19,8 @@ use std::io::{Write, Seek, SeekFrom};
 use crate::ext4_native::windows::WindowsDeviceIO;
 
 /// Write complete ext4 filesystem to device with progress reporting
+pub use super::formatter_ext::format_device_ext_version;
+
 pub async fn format_device_with_progress(
     device: &Device,
     options: &FormatOptions,
@@ -291,9 +293,22 @@ pub async fn format_device_with_progress(
         format!(r"\\.\{}", device.id)
     };
     #[cfg(not(target_os = "windows"))]
-    let device_path = format!("/dev/{}", device.id);
+    let device_path = if device.id.starts_with('/') {
+        device.id.clone()
+    } else {
+        format!("/dev/{}", device.id)
+    };
     
     info!("Formatting device - ID: '{}', Path: '{}'", device.id, device_path);
+    
+    // Extra debug to ensure file exists  
+    #[cfg(not(target_os = "windows"))]
+    {
+        use std::path::Path;
+        if !Path::new(&device_path).exists() {
+            return Err(MosesError::Other(format!("Device path does not exist: {}", device_path)));
+        }
+    }
     
     #[cfg(target_os = "windows")]
     let mut device_io = WindowsDeviceIO::open(&device_path)

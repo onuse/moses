@@ -1,4 +1,6 @@
 use moses_core::{Device, DeviceInfo, DeviceManager, DeviceType, MosesError, Partition, PermissionLevel};
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
@@ -60,6 +62,35 @@ struct WmiDiskDrive {
 pub struct WindowsDeviceManager;
 
 impl WindowsDeviceManager {
+    /// Detect filesystem type by reading boot sector signatures
+    fn detect_filesystem(device_path: &str) -> Option<String> {
+        log::debug!("Detecting filesystem for device: {}", device_path);
+        
+        let mut file = match File::open(device_path) {
+            Ok(f) => f,
+            Err(e) => {
+                log::debug!("Failed to open device {} for filesystem detection: {} (this is normal without admin rights)", device_path, e);
+                return None;
+            }
+        };
+        
+        // Use the unified detection system from formatters crate
+        match moses_formatters::detection::detect_filesystem(&mut file) {
+            Ok(fs_type) => {
+                if fs_type != "unknown" {
+                    log::info!("Detected {} filesystem on {}", fs_type, device_path);
+                    Some(fs_type)
+                } else {
+                    None
+                }
+            }
+            Err(e) => {
+                log::debug!("Failed to detect filesystem on {}: {:?}", device_path, e);
+                None
+            }
+        }
+    }
+    
     fn get_device_type(bus_type: Option<&str>, media_type: Option<&str>, interface_type: Option<&str>) -> DeviceType {
         // Check bus type first
         if let Some(bus) = bus_type {
@@ -284,6 +315,69 @@ impl DeviceManager for WindowsDeviceManager {
                 Self::is_removable(disk.media_type.as_deref(), disk.bus_type.as_deref())
             };
             
+            // Detect filesystem type
+            // Only try direct physical drive access if we have admin rights
+            let mut filesystem = if crate::windows::elevation::is_elevated() {
+                Self::detect_filesystem(&format!("\\\\.\\PHYSICALDRIVE{}", disk.number))
+            } else {
+                None
+            };
+            
+            // If we don't have admin rights or direct detection failed, and we have mount points, try to get filesystem from Windows
+            if filesystem.is_none() && !mount_points.is_empty() {
+                for mount_point in &mount_points {
+                    let mount_str = mount_point.to_string_lossy();
+                    // Check if it's a drive letter like "E:" or "E:\"
+                    if mount_str.len() >= 2 && mount_str.chars().nth(1) == Some(':') {
+                        let drive_letter = mount_str.chars().next().unwrap();
+                        // Try to get filesystem info from Windows for this drive letter
+                        let mut cmd = Command::new("powershell.exe");
+                        
+                        #[cfg(target_os = "windows")]
+                        {
+                            use std::os::windows::process::CommandExt;
+                            const CREATE_NO_WINDOW: u32 = 0x08000000;
+                            cmd.creation_flags(CREATE_NO_WINDOW);
+                        }
+                        
+                        if let Ok(output) = cmd
+                            .args(&[
+                                "-NoProfile",
+                                "-Command",
+                                &format!("(Get-Volume -DriveLetter '{}' -ErrorAction SilentlyContinue).FileSystemType", drive_letter)
+                            ])
+                            .output() {
+                            if output.status.success() {
+                                let fs_type = String::from_utf8_lossy(&output.stdout).trim().to_lowercase();
+                                if !fs_type.is_empty() && fs_type != "unknown" {
+                                    // Windows might report "RAW" for ext4 or other unrecognized filesystems
+                                    // We'll need admin rights to properly detect these
+                                    if fs_type == "raw" {
+                                        log::info!("Windows reports RAW filesystem for drive {} - might be ext4 or other Linux filesystem", drive_letter);
+                                        // Don't set filesystem, keep trying other methods
+                                    } else {
+                                        filesystem = Some(fs_type);
+                                        log::info!("Got filesystem type '{}' from Windows for drive {}", 
+                                                 filesystem.as_ref().unwrap(), drive_letter);
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Log the result with appropriate context
+            if filesystem.is_none() && !mount_points.is_empty() {
+                log::info!("Device {} filesystem could not be detected without admin rights - showing as 'unknown'", 
+                          format!("\\\\.\\PHYSICALDRIVE{}", disk.number));
+                log::info!("To detect ext4/ext3/ext2 filesystems, please run with administrator privileges");
+            } else {
+                log::info!("Device {} filesystem detection result: {:?}", 
+                          format!("\\\\.\\PHYSICALDRIVE{}", disk.number), filesystem);
+            }
+            
             devices.push(Device {
                 id: format!("\\\\.\\PHYSICALDRIVE{}", disk.number),
                 name,
@@ -292,6 +386,7 @@ impl DeviceManager for WindowsDeviceManager {
                 mount_points,
                 is_removable,
                 is_system: disk.is_system || disk.is_boot,
+                filesystem,
             });
         }
         

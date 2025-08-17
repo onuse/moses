@@ -12,3 +12,6 @@ pub use linux::LinuxDeviceManager as PlatformDeviceManager;
 
 #[cfg(target_os = "windows")]
 pub use windows::WindowsDeviceManager as PlatformDeviceManager;
+
+#[cfg(target_os = "macos")]
+pub use macos::device::MacOSDeviceManager as PlatformDeviceManager;

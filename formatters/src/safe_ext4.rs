@@ -213,6 +213,7 @@ mod tests {
             mount_points: vec![PathBuf::from("/")],
             is_removable: false,
             is_system: true,
+            filesystem: None,
         };
         
         // Should not be able to format
@@ -236,6 +237,7 @@ mod tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+            filesystem: None,
         };
         
         // Should be able to format

@@ -17,6 +17,7 @@ mod safety_tests {
             mount_points: vec![PathBuf::from("C:\\")],
             is_removable: false,
             is_system: true,
+        filesystem: None,
         }
     }
 
@@ -30,6 +31,7 @@ mod safety_tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+        filesystem: None,
         }
     }
 
@@ -41,6 +43,7 @@ mod safety_tests {
             quick_format: true,
             cluster_size: None,
             enable_compression: false,
+            verify_after_format: false,
             additional_options: HashMap::new(),
         }
     }
@@ -123,6 +126,7 @@ mod safety_tests {
                 mount_points: vec![mount.clone()],
                 is_removable: false,
                 is_system: false,
+        filesystem: None,
             };
             
             // Even if not marked as system, critical mount points should be protected
@@ -143,6 +147,7 @@ mod safety_tests {
                 quick_format: true,
                 cluster_size: None,
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -151,6 +156,7 @@ mod safety_tests {
                 quick_format: false,
                 cluster_size: Some(4096),
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: HashMap::new(),
             },
         ];
@@ -168,6 +174,7 @@ mod safety_tests {
                 quick_format: true,
                 cluster_size: None,
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -176,6 +183,7 @@ mod safety_tests {
                 quick_format: true,
                 cluster_size: None,
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -184,6 +192,7 @@ mod safety_tests {
                 quick_format: true,
                 cluster_size: None,
                 enable_compression: false,
+                verify_after_format: false,
                 additional_options: HashMap::new(),
             },
         ];
@@ -207,6 +216,7 @@ mod safety_tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+        filesystem: None,
         };
         
         assert!(SafetyValidator::validate_device_safety(&zero_size).is_err(),
@@ -221,6 +231,7 @@ mod safety_tests {
             mount_points: vec![],
             is_removable: false,
             is_system: false,
+        filesystem: None,
         };
         
         assert!(SafetyValidator::validate_device_safety(&huge_device).is_err(),
@@ -235,6 +246,7 @@ mod safety_tests {
             mount_points: vec![],
             is_removable: false,
             is_system: false,
+        filesystem: None,
         };
         
         assert!(SafetyValidator::validate_device_safety(&normal_device).is_ok(),

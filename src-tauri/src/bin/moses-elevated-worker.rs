@@ -7,6 +7,8 @@ use std::path::Path;
 use std::io::Write;
 use moses_core::{Device, FormatOptions, FilesystemFormatter};
 use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
+#[cfg(target_os = "windows")]
+use moses_formatters::{Ext2Formatter, Ext3Formatter};
 use serde_json;
 use log::{Record, Level, Metadata, LevelFilter};
 
@@ -89,6 +91,7 @@ fn show_error_message(title: &str, message: &str) {
 
 // Stub for non-Windows platforms
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 fn show_error_message(_title: &str, _message: &str) {
     // No-op on non-Windows platforms
 }
@@ -327,6 +330,9 @@ fn run_worker() {
             #[cfg(target_os = "windows")]
             show_error_message("Format Failed", &error_with_log);
             
+            #[cfg(not(target_os = "windows"))]
+            eprintln!("{}", error_with_log);
+            
             std::process::exit(1);
         }
     }
@@ -354,6 +360,78 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
     
     // Execute format based on filesystem type
     match options.filesystem_type.as_str() {
+        "ext2" => {
+            #[cfg(target_os = "windows")]
+            {
+                log_to_file("Using Ext2Formatter");
+                let formatter = Ext2Formatter;
+                
+                log_to_file("Validating options...");
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                log_to_file("Checking if device can be formatted...");
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted".to_string());
+                }
+                
+                log_to_file("Starting format...");
+                match formatter.format(&device, &options).await {
+                    Ok(_) => {
+                        log_to_file("Format completed successfully");
+                        Ok(format!("Successfully formatted {} as ext2", device.name))
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Format failed: {:?}", e);
+                        log_to_file(&error_msg);
+                        Err(error_msg)
+                    }
+                }
+            }
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                Err("ext2 formatting not yet implemented on this platform".to_string())
+            }
+        },
+        
+        "ext3" => {
+            #[cfg(target_os = "windows")]
+            {
+                log_to_file("Using Ext3Formatter");
+                let formatter = Ext3Formatter;
+                
+                log_to_file("Validating options...");
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                log_to_file("Checking if device can be formatted...");
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted".to_string());
+                }
+                
+                log_to_file("Starting format...");
+                match formatter.format(&device, &options).await {
+                    Ok(_) => {
+                        log_to_file("Format completed successfully");
+                        Ok(format!("Successfully formatted {} as ext3", device.name))
+                    }
+                    Err(e) => {
+                        let error_msg = format!("Format failed: {:?}", e);
+                        log_to_file(&error_msg);
+                        Err(error_msg)
+                    }
+                }
+            }
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                Err("ext3 formatting not yet implemented on this platform".to_string())
+            }
+        },
+        
         "ext4" => {
             #[cfg(target_os = "windows")]
             {

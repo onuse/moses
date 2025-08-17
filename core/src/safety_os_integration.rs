@@ -480,6 +480,7 @@ mod tests {
             mount_points: vec![PathBuf::from("/test")],
             is_removable: false,
             is_system: false,
+            filesystem: Some("ext4".to_string()),
         };
         
         let verification = OsDeviceVerifier::verify_device_properties(&device).await;

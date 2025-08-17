@@ -199,6 +199,11 @@ impl LinuxDeviceManager {
                 .map(|rm| rm == "1")
                 .unwrap_or_else(|| Self::is_removable(&name));
             
+            // Get filesystem type from lsblk FSTYPE field
+            let filesystem = fields.get("FSTYPE")
+                .map(|fs| fs.trim().to_string())
+                .filter(|fs| !fs.is_empty());
+            
             let device = Device {
                 id: device_path.clone(),
                 name: if !model.is_empty() { 
@@ -211,6 +216,7 @@ impl LinuxDeviceManager {
                 mount_points,
                 is_removable,
                 is_system,
+                filesystem,
             };
             
             devices.push(device);
@@ -318,6 +324,7 @@ impl DeviceManager for LinuxDeviceManager {
                 mount_points,
                 is_removable: Self::is_removable(&device_name),
                 is_system,
+                filesystem: None, // This is for fallback raw device detection
             });
         }
         

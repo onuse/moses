@@ -238,6 +238,7 @@ fn create_system_drive() -> Device {
         ],
         is_removable: false,
         is_system: true,
+        filesystem: None,
     }
 }
 
@@ -254,6 +255,7 @@ fn create_safe_usb() -> Device {
         mount_points: vec![],
         is_removable: true,
         is_system: false,
+        filesystem: None,
     }
 }
 
@@ -270,6 +272,7 @@ fn create_risky_device() -> Device {
         mount_points: vec![PathBuf::from("/data")],
         is_removable: false,
         is_system: false,
+        filesystem: None,
     }
 }
 
@@ -282,6 +285,7 @@ fn create_device_with_mount(mount: PathBuf) -> Device {
         mount_points: vec![mount],
         is_removable: false,
         is_system: false,
+        filesystem: None,
     }
 }
 

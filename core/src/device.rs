@@ -10,6 +10,7 @@ pub struct Device {
     pub mount_points: Vec<PathBuf>,
     pub is_removable: bool,
     pub is_system: bool,
+    pub filesystem: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

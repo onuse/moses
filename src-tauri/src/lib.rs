@@ -7,12 +7,29 @@ use moses_formatters::{NtfsFormatter, Fat32Formatter, ExFatFormatter};
 use moses_platform::windows::elevation::is_elevated;
 
 mod logging;
+pub mod commands;
 
 #[cfg(target_os = "linux")]
 use moses_formatters::Ext4LinuxFormatter;
 
 #[cfg(target_os = "windows")]
 use moses_formatters::Ext4NativeFormatter;
+
+#[tauri::command]
+async fn detect_drives() -> Result<Vec<Device>, String> {
+    #[cfg(target_os = "windows")]
+    let manager = PlatformDeviceManager;
+    
+    #[cfg(target_os = "linux")]
+    let manager = PlatformDeviceManager;
+    
+    #[cfg(target_os = "macos")]
+    let manager = PlatformDeviceManager;
+    
+    manager.enumerate_devices()
+        .await
+        .map_err(|e| format!("Failed to detect drives: {}", e))
+}
 
 #[tauri::command]
 async fn check_elevation_status() -> Result<bool, String> {
@@ -82,7 +99,6 @@ async fn execute_format_elevated(
             let temp_dir = env::temp_dir();
             let device_file = temp_dir.join(format!("moses_device_{}.json", std::process::id()));
             let options_file = temp_dir.join(format!("moses_options_{}.json", std::process::id()));
-            let output_file = temp_dir.join(format!("moses_output_{}.json", std::process::id()));
             
             // Write JSON to temp files
             fs::write(&device_file, &device_json)
@@ -162,9 +178,17 @@ async fn execute_format_elevated(
 #[tauri::command]
 async fn enumerate_devices() -> Result<Vec<Device>, String> {
     let manager = PlatformDeviceManager;
-    manager.enumerate_devices()
+    let devices = manager.enumerate_devices()
         .await
-        .map_err(|e| format!("Failed to enumerate devices: {}", e))
+        .map_err(|e| format!("Failed to enumerate devices: {}", e))?;
+    
+    // Log detected devices and their filesystems
+    for device in &devices {
+        log::info!("Device: {} ({}), Size: {}, Filesystem: {:?}", 
+                  device.name, device.id, device.size, device.filesystem);
+    }
+    
+    Ok(devices)
 }
 
 #[tauri::command]
@@ -257,6 +281,58 @@ async fn execute_format(
     
     // Select and execute the appropriate formatter
     match options.filesystem_type.as_str() {
+        "ext2" => {
+            #[cfg(target_os = "windows")]
+            {
+                let formatter = Ext2Formatter;
+                
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted (mounted or system device)".to_string());
+                }
+                
+                formatter.format(&device, &options)
+                    .await
+                    .map_err(|e| format!("Format failed: {}", e))?;
+                
+                Ok(format!("Successfully formatted {} as ext2", device.name))
+            }
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                Err("ext2 formatting not yet implemented on this platform".to_string())
+            }
+        },
+        
+        "ext3" => {
+            #[cfg(target_os = "windows")]
+            {
+                let formatter = Ext3Formatter;
+                
+                formatter.validate_options(&options)
+                    .await
+                    .map_err(|e| format!("Invalid options: {}", e))?;
+                
+                if !formatter.can_format(&device) {
+                    return Err("Device cannot be formatted (mounted or system device)".to_string());
+                }
+                
+                formatter.format(&device, &options)
+                    .await
+                    .map_err(|e| format!("Format failed: {}", e))?;
+                
+                Ok(format!("Successfully formatted {} as ext3", device.name))
+            }
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                Err("ext3 formatting not yet implemented on this platform".to_string())
+            }
+        },
+        
         "ext4" => {
             #[cfg(target_os = "linux")]
             {
@@ -494,11 +570,17 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             check_elevation_status,
+            detect_drives,
             enumerate_devices,
             simulate_format,
             execute_format,
             execute_format_elevated,
-            check_formatter_requirements
+            check_formatter_requirements,
+            commands::filesystem::read_directory,
+            commands::filesystem::read_file,
+            commands::filesystem::copy_files,
+            commands::filesystem::detect_filesystem_elevated,
+            commands::filesystem::request_elevated_filesystem_detection
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -468,6 +468,7 @@ mod tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+            filesystem: Some("fat32".to_string()),
         };
         
         // Lock device
@@ -488,6 +489,7 @@ mod tests {
             mount_points: vec![],
             is_removable: true,
             is_system: false,
+            filesystem: Some("fat32".to_string()),
         };
         
         let mut safety = SafetyCheck::lock_device(&device, "test");
