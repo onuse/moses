@@ -23,6 +23,7 @@ hex = "0.4"
 crc32fast = "1.5.0"
 log = "0.4"
 uuid = { version = "1.11", features = ["v4"] }
+rand = "0.8"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "winnt", "handleapi", "ioapiset", "winioctl", "errhandlingapi", "winbase", "minwindef"] }

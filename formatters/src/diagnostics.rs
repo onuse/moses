@@ -131,7 +131,7 @@ fn get_filesystem_type_impl<R: Read + Seek>(file: &mut R) -> Result<String, Mose
 pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError> {
     info!("Analyzing unknown filesystem on device: {}", device.name);
     
-    // Use AlignedDeviceReader on Windows for proper sector-aligned access
+    // Use the improved analyzer that properly handles partitions
     #[cfg(target_os = "windows")]
     {
         use crate::device_reader::AlignedDeviceReader;
@@ -139,18 +139,19 @@ pub fn analyze_unknown_filesystem(device: &Device) -> Result<String, MosesError>
         
         let file = open_device_with_fallback(device)?;
         let mut reader = AlignedDeviceReader::new(file);
-        analyze_filesystem_impl(&mut reader, device)
+        crate::diagnostics_improved::analyze_filesystem_comprehensive(&mut reader, device)
     }
     
     #[cfg(not(target_os = "windows"))]
     {
         use crate::utils::open_device_with_fallback;
         let mut file = open_device_with_fallback(device)?;
-        analyze_filesystem_impl(&mut file, device)
+        crate::diagnostics_improved::analyze_filesystem_comprehensive(&mut file, device)
     }
 }
 
 /// Implementation of filesystem analysis that works with any Read + Seek trait
+#[allow(dead_code)] // Kept for reference, replaced by diagnostics_improved.rs
 fn analyze_filesystem_impl<R: Read + Seek>(file: &mut R, device: &Device) -> Result<String, MosesError> {
     let mut report = String::new();
     

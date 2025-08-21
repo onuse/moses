@@ -20,6 +20,16 @@
         Refresh
       </button>
       
+      <button 
+        class="tool-btn" 
+        @click="showCleanDiskDialog" 
+        :disabled="!selectedDevice || selectedDevice.is_system"
+        title="Remove all partitions and signatures from disk"
+      >
+        <span class="tool-icon">🧹</span>
+        Clean Disk
+      </button>
+      
       <div class="toolbar-spacer"></div>
       
       <button class="tool-btn" @click="toggleTheme" title="Toggle theme">
@@ -160,6 +170,9 @@
         </div>
       </div>
 
+      <!-- Vertical Resizer -->
+      <div class="resizer vertical-resizer" @mousedown="startResize('vertical', $event)"></div>
+
       <!-- Main Panel -->
       <div class="main-panel">
         <!-- No Selection State -->
@@ -176,6 +189,7 @@
           @copy-files="handleCopyFiles"
           @export-files="handleExportFiles"
           @show-properties="handleShowProperties"
+          @update-filesystem="handleUpdateFilesystem"
         />
 
         <!-- System Drive Warning (Browse Mode) -->
@@ -189,9 +203,13 @@
         <!-- Format Options (Format Mode) -->
         <div v-else-if="viewMode === 'format' && selectedDevice && !selectedDevice.is_system" class="format-content">
           <!-- Header -->
-          <div class="content-header">
-            <h2>{{ selectedDevice.name }}</h2>
-            <div class="device-path">{{ selectedDevice.id }}</div>
+          <!-- Drive header (unified with Browse mode) -->
+          <div class="drive-header">
+            <div class="drive-info">
+              <span class="drive-name">{{ selectedDevice.name }}</span>
+              <span class="drive-separator">/</span>
+              <span class="drive-id">{{ selectedDevice.id }}</span>
+            </div>
           </div>
 
           <!-- Options Grid -->
@@ -199,69 +217,115 @@
             <div class="option-card">
               <h3>Format Options</h3>
               
-              <div class="options-layout">
-                <!-- Left Column: Dropdowns -->
-                <div class="options-left">
-                  <div class="form-group">
-                    <label>File System</label>
-                    <select v-model="formatOptions.filesystem_type" class="form-control">
-                      <option value="">Select a file system...</option>
-                      <optgroup label="Recommended">
-                        <option value="exfat">exFAT - Universal, no size limits</option>
-                      </optgroup>
-                      <optgroup label="Windows">
-                        <option value="ntfs">NTFS - Windows native</option>
-                        <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
-                        <option value="fat16">FAT16 - Legacy, max 4GB volume</option>
-                      </optgroup>
-                      <optgroup label="Linux (ext family)">
-                        <option value="ext4">ext4 - Modern Linux</option>
-                        <option value="ext3">ext3 - Linux with journal</option>
-                        <option value="ext2">ext2 - Simple Linux (2TB limit)</option>
-                      </optgroup>
-                    </select>
-                  </div>
+              <!-- Top Row: Basic Options -->
+              <div class="options-row-basic">
+                <div class="form-group flex-grow">
+                  <label>File System</label>
+                  <select v-model="formatOptions.filesystem_type" class="form-control">
+                    <option value="">Select a file system...</option>
+                    <optgroup label="Recommended">
+                      <option value="exfat">exFAT - Universal, no size limits</option>
+                    </optgroup>
+                    <optgroup label="Windows">
+                      <option value="ntfs">NTFS - Windows native</option>
+                      <option value="fat32">FAT32 - Legacy, 4GB file limit</option>
+                      <option value="fat16">FAT16 - Legacy, max 4GB volume</option>
+                    </optgroup>
+                    <optgroup label="Linux (ext family)">
+                      <option value="ext4">ext4 - Modern Linux</option>
+                      <option value="ext3">ext3 - Linux with journal</option>
+                      <option value="ext2">ext2 - Simple Linux (2TB limit)</option>
+                    </optgroup>
+                  </select>
+                </div>
 
-                  <div class="form-group">
-                    <label>Volume Label</label>
-                    <input 
-                      v-model="formatOptions.label" 
-                      type="text" 
-                      class="form-control"
-                      :placeholder="labelPlaceholder"
-                      :maxlength="maxLabelLength"
-                    >
-                    <span class="form-hint">{{ labelHint }}</span>
+                <div class="form-group">
+                  <label>Volume Label</label>
+                  <input 
+                    v-model="formatOptions.label" 
+                    type="text" 
+                    class="form-control"
+                    :placeholder="labelPlaceholder"
+                    :maxlength="maxLabelLength"
+                    style="width: 200px;"
+                  >
+                  <span class="form-hint">{{ labelHint }}</span>
+                </div>
+              </div>
+
+              <!-- Bottom Row: Advanced Options (Horizontal) -->
+              <div class="options-row-advanced">
+                <!-- Format Speed -->
+                <div class="option-section compact">
+                  <div class="section-title">Format Speed</div>
+                  <div class="radio-group horizontal">
+                    <label class="radio-label compact">
+                      <input type="radio" v-model="formatOptions.quick_format" :value="true">
+                      <span class="radio-circle"></span>
+                      <span class="radio-text">
+                        Quick
+                        <span class="option-hint">Seconds</span>
+                      </span>
+                    </label>
+                    <label class="radio-label compact">
+                      <input type="radio" v-model="formatOptions.quick_format" :value="false">
+                      <span class="radio-circle"></span>
+                      <span class="radio-text">
+                        Full
+                        <span class="option-hint">Minutes</span>
+                      </span>
+                    </label>
                   </div>
                 </div>
 
-                <!-- Right Column: Checkboxes -->
-                <div class="options-right">
+                <!-- Disk Preparation -->
+                <div class="option-section compact">
+                  <div class="section-title">Disk Preparation</div>
                   <div class="checkbox-group">
-                    <label class="checkbox-label">
-                      <input type="checkbox" v-model="formatOptions.quick_format">
-                      <span class="checkbox-box"></span>
-                      <span class="checkbox-text">
-                        Quick Format
-                        <span class="checkbox-hint">Faster but less thorough</span>
-                      </span>
-                    </label>
-
-                    <label class="checkbox-label">
-                      <input type="checkbox" v-model="formatOptions.verify_after_format">
-                      <span class="checkbox-box"></span>
-                      <span class="checkbox-text">
-                        Verify After Format
-                        <span class="checkbox-hint">Validate filesystem integrity</span>
-                      </span>
-                    </label>
-
-                    <label class="checkbox-label">
-                      <input type="checkbox" v-model="formatOptions.create_partition_table">
+                    <label class="checkbox-label compact">
+                      <input 
+                        type="checkbox" 
+                        v-model="formatOptions.create_partition_table"
+                      >
                       <span class="checkbox-box" :class="{ checked: formatOptions.create_partition_table }"></span>
                       <span class="checkbox-text">
-                        Create Partition Table
-                        <span class="checkbox-hint">Creates MBR with single partition</span>
+                        New Partition Table
+                        <span class="checkbox-hint">Fresh MBR/GPT</span>
+                      </span>
+                    </label>
+
+                    <label class="checkbox-label compact" 
+                           title="Use this for problematic disks that won't format normally">
+                      <input 
+                        type="checkbox" 
+                        v-model="formatOptions.clean_before_format"
+                      >
+                      <span class="checkbox-box" :class="{ checked: formatOptions.clean_before_format }"></span>
+                      <span class="checkbox-text">
+                        Deep Clean
+                        <span class="checkbox-hint">Fix stubborn disks</span>
+                      </span>
+                    </label>
+                  </div>
+                </div>
+
+                <!-- Verification -->
+                <div class="option-section compact">
+                  <div class="section-title">Verification</div>
+                  <div class="checkbox-group">
+                    <label class="checkbox-label compact">
+                      <input 
+                        type="checkbox" 
+                        v-model="formatOptions.verify_after_format"
+                        :disabled="formatOptions.quick_format"
+                      >
+                      <span class="checkbox-box" :class="{ 
+                        checked: formatOptions.verify_after_format,
+                        disabled: formatOptions.quick_format 
+                      }"></span>
+                      <span class="checkbox-text" :class="{ disabled: formatOptions.quick_format }">
+                        Verify After
+                        <span class="checkbox-hint">{{ formatOptions.quick_format ? 'N/A' : 'Check integrity' }}</span>
                       </span>
                     </label>
                   </div>
@@ -269,27 +333,7 @@
               </div>
             </div>
 
-            <!-- Simulation Results -->
-            <div v-if="simulationReport" class="option-card">
-              <h3>Simulation Results</h3>
-              
-              <div class="result-item">
-                <span class="result-label">Estimated Time</span>
-                <span class="result-value">{{ formatDuration(simulationReport.estimated_time) }}</span>
-              </div>
-              
-              <div class="result-item">
-                <span class="result-label">Available Space</span>
-                <span class="result-value">{{ formatSize(simulationReport.space_after_format) }}</span>
-              </div>
-              
-              <div v-if="simulationReport.warnings.length > 0" class="warnings-box">
-                <div class="warning-title">Important Information</div>
-                <div v-for="(warning, i) in simulationReport.warnings" :key="i" class="warning-item">
-                  {{ warning }}
-                </div>
-              </div>
-            </div>
+            <!-- Simulation Results removed - shown only in popup -->
 
             <!-- Progress -->
             <div v-if="isFormatting" class="option-card">
@@ -338,6 +382,9 @@
       </div>
     </div>
 
+    <!-- Horizontal Resizer -->
+    <div class="resizer horizontal-resizer" @mousedown="startResize('horizontal', $event)"></div>
+
     <!-- Log Console -->
     <LogConsole ref="logConsole" />
     
@@ -366,6 +413,120 @@
       </div>
     </div>
     
+    <!-- Simulation Results Modal -->
+    <div v-if="showSimulationModal" class="modal-overlay" @click="showSimulationModal = false">
+      <div class="modal-content" @click.stop>
+        <div class="modal-header">
+          <h3>Simulation Complete</h3>
+          <button class="modal-close" @click="showSimulationModal = false">✕</button>
+        </div>
+        <div class="modal-body">
+          <div v-if="simulationReport" class="simulation-details">
+            <div class="result-item">
+              <span class="result-label">Estimated Time:</span>
+              <span class="result-value">{{ formatDuration(simulationReport.estimated_time) }}</span>
+            </div>
+            
+            <div class="result-item">
+              <span class="result-label">Available Space:</span>
+              <span class="result-value">{{ formatSize(simulationReport.space_after_format) }}</span>
+            </div>
+            
+            <div v-if="simulationReport.warnings.length > 0" class="warnings-box">
+              <div class="warning-title">Important Information:</div>
+              <div v-for="(warning, i) in simulationReport.warnings" :key="i" class="warning-item">
+                • {{ warning }}
+              </div>
+            </div>
+            
+            <div v-if="simulationReport.required_tools?.length > 0" class="info-box">
+              <div class="info-title">Required Tools:</div>
+              <div v-for="(tool, i) in simulationReport.required_tools" :key="i">
+                • {{ tool }}
+              </div>
+            </div>
+          </div>
+          
+          <div class="success-message">
+            ✅ Simulation successful! You can now format the drive.
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="showSimulationModal = false">
+            Close
+          </button>
+          <button class="btn btn-primary" @click="showSimulationModal = false; executeFormat()" :disabled="!canFormat">
+            Format Drive Now
+          </button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- Clean Disk Dialog -->
+    <div v-if="showCleanDialog" class="modal-overlay" @click="closeCleanDialog">
+      <div class="modal-content clean-modal" @click.stop>
+        <div class="modal-header">
+          <h3>Clean Disk</h3>
+          <button class="modal-close" @click="closeCleanDialog">✕</button>
+        </div>
+        <div class="modal-body">
+          <div class="warning-box">
+            <span class="warning-icon">⚠️</span>
+            <div>
+              <strong>Warning!</strong> This will remove ALL data and partition structures from:
+              <div class="device-name">{{ selectedDevice?.name }} ({{ formatBytes(selectedDevice?.size || 0) }})</div>
+            </div>
+          </div>
+          
+          <div class="clean-options">
+            <label class="radio-option">
+              <input type="radio" v-model="cleanMethod" value="quick" />
+              <span>
+                <strong>Quick Clean</strong> - Remove partition tables only (fastest)
+              </span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" v-model="cleanMethod" value="zero" />
+              <span>
+                <strong>Zero Fill</strong> - Overwrite entire disk with zeros
+              </span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" v-model="cleanMethod" value="dod" />
+              <span>
+                <strong>DoD 5220.22-M</strong> - 3-pass secure wipe
+              </span>
+            </label>
+            <label class="radio-option">
+              <input type="radio" v-model="cleanMethod" value="random" />
+              <span>
+                <strong>Random Data</strong> - Overwrite with random data
+              </span>
+            </label>
+          </div>
+          
+          <div v-if="cleanProgress.active" class="progress-section">
+            <div class="progress-bar">
+              <div class="progress-fill" :style="{ width: cleanProgress.percent + '%' }"></div>
+            </div>
+            <p>{{ cleanProgress.message }}</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn btn-secondary" @click="closeCleanDialog" :disabled="cleanProgress.active">
+            Cancel
+          </button>
+          <button 
+            class="btn btn-danger" 
+            @click="executeClean" 
+            :disabled="cleanProgress.active"
+          >
+            {{ cleanProgress.active ? 'Cleaning...' : 'Clean Disk' }}
+          </button>
+        </div>
+      </div>
+    </div>
+    
     <!-- Status Bar -->
     <div class="status-bar">
       <div class="status-item">
@@ -384,7 +545,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import LogConsole from './components/LogConsole.vue'
@@ -398,6 +559,7 @@ interface Device {
   mount_points: string[]
   is_removable: boolean
   is_system: boolean
+  filesystem?: string
 }
 
 interface FormatOptions {
@@ -408,11 +570,12 @@ interface FormatOptions {
   enable_compression: boolean
   verify_after_format: boolean
   create_partition_table: boolean
+  clean_before_format: boolean
   additional_options: Record<string, string>
 }
 
 interface SimulationReport {
-  estimated_time: number
+  estimated_time: number | { secs: number, nanos?: number } // Can be either seconds or Rust Duration
   warnings: string[]
   required_tools: string[]
   space_after_format: number
@@ -436,10 +599,28 @@ const formatTime = ref('00:00')
 const currentOperation = ref('')
 const viewMode = ref<'browse' | 'format'>('browse') // Default to browse mode
 
+// Resizable panes state
+const isResizing = ref(false)
+const resizeType = ref<'vertical' | 'horizontal' | null>(null)
+const leftPane = ref<HTMLElement | null>(null)
+const mainContent = ref<HTMLElement | null>(null)
+
 // Analysis modal state
 const showAnalysisModal = ref(false)
 const analysisLoading = ref(false)
 const analysisResult = ref('')
+
+// Simulation modal state
+const showSimulationModal = ref(false)
+
+// Clean disk state
+const showCleanDialog = ref(false)
+const cleanMethod = ref('quick')
+const cleanProgress = ref({
+  active: false,
+  percent: 0,
+  message: ''
+})
 
 const formatOptions = ref<FormatOptions>({
   filesystem_type: '',
@@ -448,7 +629,8 @@ const formatOptions = ref<FormatOptions>({
   quick_format: true,
   enable_compression: false,
   verify_after_format: false,
-  create_partition_table: true,  // Add this field
+  create_partition_table: true,
+  clean_before_format: false,  // Default to false to preserve current behavior
   additional_options: {}
 })
 
@@ -517,6 +699,74 @@ const labelHint = computed(() => {
   }
 })
 
+// Resizing Methods
+const startResize = (type: 'vertical' | 'horizontal', event: MouseEvent) => {
+  isResizing.value = true
+  resizeType.value = type
+  
+  const startX = event.clientX
+  const startY = event.clientY
+  
+  if (type === 'vertical' && leftPane.value) {
+    const startWidth = leftPane.value.offsetWidth
+    
+    const doDrag = (e: MouseEvent) => {
+      if (!leftPane.value) return
+      const newWidth = startWidth + e.clientX - startX
+      // Constrain width between 200px and 500px
+      leftPane.value.style.width = `${Math.min(500, Math.max(200, newWidth))}px`
+    }
+    
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag)
+      document.removeEventListener('mouseup', stopDrag)
+      isResizing.value = false
+      resizeType.value = null
+      document.body.classList.remove('resizing')
+    }
+    
+    document.addEventListener('mousemove', doDrag)
+    document.addEventListener('mouseup', stopDrag)
+    document.body.classList.add('resizing')
+  } else if (type === 'horizontal') {
+    const logConsoleElement = logConsole.value?.$el as HTMLElement
+    if (!logConsoleElement) return
+    
+    const startHeight = logConsoleElement.offsetHeight
+    
+    const doDrag = (e: MouseEvent) => {
+      const newHeight = startHeight - (e.clientY - startY)
+      // Constrain height between 100px and 500px
+      logConsoleElement.style.height = `${Math.min(500, Math.max(100, newHeight))}px`
+    }
+    
+    const stopDrag = () => {
+      document.removeEventListener('mousemove', doDrag)
+      document.removeEventListener('mouseup', stopDrag)
+      isResizing.value = false
+      resizeType.value = null
+      document.body.classList.remove('resizing')
+    }
+    
+    document.addEventListener('mousemove', doDrag)
+    document.addEventListener('mouseup', stopDrag)
+    document.body.classList.add('resizing')
+  }
+}
+
+// Handle option relationships
+// Note: Removed handleCleanChange as the options are now independent
+// - Create Partition Table: Always replaces existing partitions
+// - Deep Clean: Extra step for problematic disks
+
+// Watch for quick format changes to handle verify option
+watch(() => formatOptions.value.quick_format, (isQuick) => {
+  if (isQuick && formatOptions.value.verify_after_format) {
+    // Disable verify for quick format as it's not useful
+    formatOptions.value.verify_after_format = false
+  }
+})
+
 // Methods
 const getDeviceIcon = (type: string) => {
   const icons: Record<string, string> = {
@@ -573,7 +823,27 @@ const formatFilesystemName = (fs: string): string => {
 // Cache for analysis results to avoid re-analyzing
 const analysisCache = ref<Map<string, string>>(new Map())
 
-const formatDuration = (seconds: number): string => {
+const formatDuration = (duration: number | { secs: number, nanos: number }): string => {
+  // Handle both formats: simple number (seconds) or Duration object from Rust
+  let seconds: number
+  
+  if (typeof duration === 'number') {
+    seconds = duration
+  } else if (duration && typeof duration === 'object' && 'secs' in duration) {
+    // Rust Duration object with secs and nanos fields
+    seconds = duration.secs + (duration.nanos || 0) / 1_000_000_000
+  } else {
+    console.warn('Invalid duration format:', duration)
+    return 'Unknown'
+  }
+  
+  // Handle invalid numbers
+  if (!isFinite(seconds) || isNaN(seconds)) {
+    return 'Unknown'
+  }
+  
+  seconds = Math.round(seconds) // Round to nearest second
+  
   if (seconds < 60) return `${seconds} seconds`
   const minutes = Math.floor(seconds / 60)
   const secs = seconds % 60
@@ -616,6 +886,18 @@ const handleCopyFiles = (event: any) => {
   // TODO: Implement cross-filesystem copy
 }
 
+const handleUpdateFilesystem = (event: { deviceId: string, filesystem: string }) => {
+  // Find and update the device in the devices array
+  const deviceIndex = devices.value.findIndex(d => d.id === event.deviceId)
+  if (deviceIndex !== -1) {
+    devices.value[deviceIndex] = {
+      ...devices.value[deviceIndex],
+      filesystem: event.filesystem
+    }
+    console.log(`Updated device ${event.deviceId} filesystem to: ${event.filesystem}`)
+  }
+}
+
 const handleExportFiles = (event: any) => {
   console.log('Export files:', event)
   // TODO: Implement file export
@@ -630,6 +912,15 @@ const toggleTheme = () => {
   isDarkMode.value = !isDarkMode.value
   // Save preference to localStorage
   localStorage.setItem('theme', isDarkMode.value ? 'dark' : 'light')
+}
+
+// Utility functions
+const formatBytes = (bytes: number): string => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 const refreshDevices = async () => {
@@ -682,7 +973,8 @@ const simulateFormat = async () => {
       options: options
     })
     console.log('Simulation successful:', simulationReport.value)
-    alert('Simulation complete! You can now format the drive.')
+    console.log('Estimated time received:', simulationReport.value.estimated_time)
+    showSimulationModal.value = true
   } catch (error) {
     console.error('Simulation failed:', error)
     alert(`Simulation failed: ${error}`)
@@ -771,8 +1063,8 @@ const analyzeFilesystem = async () => {
       logConsole.value?.info('Elevation required, requesting administrator privileges...', 'Analyzer')
       
       try {
-        // Try the elevated version
-        const result = await invoke('analyze_filesystem_elevated', {
+        // Use socket-based analyze command for single UAC prompt
+        const result = await invoke('analyze_filesystem_socket', {
           deviceId: selectedDevice.value.id
         })
         
@@ -816,6 +1108,82 @@ const copyAnalysisToClipboard = async () => {
   } catch (error) {
     console.error('Failed to copy to clipboard:', error)
     logConsole.value?.error('Failed to copy to clipboard', 'Analyzer')
+  }
+}
+
+// Clean disk methods
+const showCleanDiskDialog = () => {
+  if (!selectedDevice.value) {
+    alert('Please select a drive to clean')
+    return
+  }
+  
+  if (selectedDevice.value.is_system) {
+    alert('Cannot clean system drive!')
+    return
+  }
+  
+  showCleanDialog.value = true
+  cleanMethod.value = 'quick'
+  cleanProgress.value = {
+    active: false,
+    percent: 0,
+    message: ''
+  }
+}
+
+const closeCleanDialog = () => {
+  if (!cleanProgress.value.active) {
+    showCleanDialog.value = false
+  }
+}
+
+const executeClean = async () => {
+  if (!selectedDevice.value) return
+  
+  const confirmMsg = `Are you sure you want to clean ${selectedDevice.value.name}?\n\n` +
+    `This will permanently remove ALL data and partition structures!\n\n` +
+    `Method: ${cleanMethod.value.toUpperCase()}`
+  
+  if (!confirm(confirmMsg)) return
+  
+  cleanProgress.value.active = true
+  cleanProgress.value.percent = 0
+  cleanProgress.value.message = 'Starting disk clean...'
+  
+  logConsole.value?.info(`Starting ${cleanMethod.value} clean on ${selectedDevice.value.name}`, 'Cleaner')
+  
+  try {
+    // Start clean operation
+    cleanProgress.value.percent = 10
+    cleanProgress.value.message = 'Preparing disk for cleaning...'
+    
+    // Use socket-based clean command
+    const result = await invoke('clean_disk_socket', {
+      request: {
+        device_id: selectedDevice.value.id,
+        wipe_method: cleanMethod.value
+      }
+    })
+    
+    cleanProgress.value.percent = 100
+    cleanProgress.value.message = 'Clean completed successfully!'
+    logConsole.value?.success(`Disk cleaned successfully: ${result}`, 'Cleaner')
+    
+    // Refresh devices after clean
+    setTimeout(() => {
+      refreshDevices()
+      closeCleanDialog()
+    }, 2000)
+    
+  } catch (error) {
+    console.error('Clean failed:', error)
+    logConsole.value?.error(`Clean failed: ${error}`, 'Cleaner')
+    cleanProgress.value.message = `Clean failed: ${error}`
+    
+    setTimeout(() => {
+      cleanProgress.value.active = false
+    }, 3000)
   }
 }
 
@@ -887,6 +1255,38 @@ const executeFormat = async () => {
   }, 500)
   
   try {
+    // Clean the disk first if requested
+    if (formatOptions.value.clean_before_format) {
+      logConsole.value?.info('Cleaning disk before format...', 'Formatter')
+      progressStatus.value = 'Cleaning disk...'
+      currentOperation.value = 'Removing partition structures'
+      
+      try {
+        // Use socket-based clean command if available
+        const cleanResult = await invoke('clean_disk_socket', {
+          request: {
+            device_id: selectedDevice.value.id,
+            wipe_method: 'quick'  // Quick clean is sufficient before format
+          }
+        })
+        
+        // Log success if we got here
+        if (logConsole.value) {
+          logConsole.value.info('Disk cleaned successfully', 'Formatter')
+        }
+        
+        // Brief pause to let the system recognize the clean disk
+        await new Promise(resolve => setTimeout(resolve, 1000))
+      } catch (cleanError: any) {
+        // Log the error safely
+        if (logConsole.value) {
+          logConsole.value.error(`Clean failed: ${cleanError}`, 'Formatter')
+        }
+        console.error('Clean error:', cleanError)
+        // Continue with format anyway - the format operation may still succeed
+      }
+    }
+    
     // Add create_partition_table to additional_options
     const options = {
       ...formatOptions.value,
@@ -896,7 +1296,11 @@ const executeFormat = async () => {
       }
     }
     
-    await invoke('execute_format', {
+    progressStatus.value = 'Formatting...'
+    currentOperation.value = 'Creating filesystem'
+    
+    // Use socket-based format for single UAC prompt
+    await invoke('format_disk_socket', {
       device: selectedDevice.value,
       options
     })
@@ -983,6 +1387,28 @@ body {
   font-size: 13px;
   overflow: hidden;
   user-select: none;
+}
+
+/* Root level defaults (fallback values) */
+:root {
+  --bg-primary: #1e1e1e;
+  --bg-secondary: #252526;
+  --bg-tertiary: #2d2d30;
+  --bg-hover: #2a2d2e;
+  --bg-active: #094771;
+  --bg-input: #3c3c3c;
+  --border-color: #3e3e42;
+  --text-primary: #cccccc;
+  --text-secondary: #969696;
+  --text-disabled: #5a5a5a;
+  --accent: #007acc;
+  --accent-hover: #1e8ad6;
+  --danger: #d83b3b;
+  --danger-bg: #5a1d1d;
+  --success: #4db84d;
+  --success-bg: #1d3d1d;
+  --warning: #d8a936;
+  --warning-bg: #3c3c3c;
 }
 
 /* Default to dark theme */
@@ -1164,11 +1590,11 @@ body {
 
 /* Sidebar */
 .sidebar {
-  width: 280px;
+  width: 260px;
   min-width: 200px;
   max-width: 400px;
-  resize: horizontal;
   overflow: auto;
+  flex-shrink: 0;
   background: var(--bg-secondary);
   border-right: 1px solid var(--border-color);
   display: flex;
@@ -1293,12 +1719,16 @@ body {
   color: var(--text-primary);
 }
 
-.drive-info {
+/* Sidebar drive info - must be specific to avoid header override */
+.drive-item .drive-info {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
 }
 
-.drive-name {
+.drive-item .drive-name {
   font-size: 13px;
   font-weight: 500;
   color: var(--text-primary);
@@ -1344,6 +1774,7 @@ body {
   flex-direction: column;
   background: var(--bg-primary);
   overflow-y: auto;
+  min-width: 600px;
 }
 
 /* Empty Panel */
@@ -1353,7 +1784,7 @@ body {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  padding: 48px;
+  padding: 24px;
   text-align: center;
 }
 
@@ -1398,30 +1829,50 @@ body {
   flex-direction: column;
 }
 
-.content-header {
-  padding: 24px;
-  border-bottom: 1px solid var(--bg-tertiary);
+/* Unified Drive Header (matches FileBrowser.vue exactly) */
+.drive-header {
+  padding: 8px 16px;
+  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.content-header h2 {
-  font-size: 20px;
-  font-weight: 400;
+/* Header drive info - specific to header */
+.drive-header .drive-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.drive-header .drive-name {
+  font-size: 13px;
+  font-weight: 500;
   color: var(--text-primary);
-  margin-bottom: 4px;
 }
 
-.device-path {
-  font-size: 12px;
+.drive-separator {
   color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+.drive-id {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.8;
 }
 
 /* Options Container */
 .options-container {
   flex: 1;
-  padding: 24px;
+  padding: 12px 16px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 12px;
+  overflow-y: auto;
 }
 
 .option-card {
@@ -1457,12 +1908,12 @@ body {
 
 .form-control {
   width: 100%;
-  padding: 6px 8px;
+  padding: 4px 6px;
   background: var(--bg-input);
   border: 1px solid var(--border-color);
   border-radius: 3px;
   color: var(--text-primary);
-  font-size: 13px;
+  font-size: 12px;
   transition: all 0.15s;
 }
 
@@ -1474,16 +1925,72 @@ body {
 
 .form-hint {
   display: block;
-  margin-top: 4px;
-  font-size: 11px;
+  margin-top: 2px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
 /* New layout for left/right columns */
-.options-layout {
+/* New horizontal layout for format options */
+.options-row-basic {
   display: flex;
-  gap: 24px;
+  gap: 30px;
   margin-bottom: 20px;
+  align-items: flex-start;
+}
+
+.options-row-basic .flex-grow {
+  flex: 1;
+  max-width: 400px;
+}
+
+.options-row-advanced {
+  display: flex;
+  gap: 15px;
+  flex-wrap: nowrap;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+/* Compact option sections for horizontal layout */
+.option-section.compact {
+  flex: 1;
+  min-width: 160px;
+  margin-bottom: 0;
+  padding: 10px 14px;
+}
+
+.radio-group.horizontal {
+  display: flex;
+  flex-direction: row;
+  gap: 12px;
+}
+
+.radio-label.compact,
+.checkbox-label.compact {
+  padding: 2px 0;
+}
+
+.radio-label.compact .radio-text,
+.checkbox-label.compact .checkbox-text {
+  font-size: 13px;
+}
+
+.radio-label.compact .radio-circle,
+.checkbox-label.compact .checkbox-box {
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+}
+
+.option-section.compact .section-title {
+  font-size: 10px;
+  margin-bottom: 8px;
+}
+
+.checkbox-hint, .option-hint {
+  font-size: 10px;
+  line-height: 1.2;
 }
 
 .options-left {
@@ -1493,8 +2000,9 @@ body {
 
 .options-right {
   flex: 0 0 auto;
-  min-width: 180px;
-  padding-top: 20px;
+  min-width: 220px;
+  padding-top: 10px;
+  padding-left: 20px;
 }
 
 .checkbox-group {
@@ -1553,10 +2061,103 @@ body {
   flex-direction: column;
 }
 
-.checkbox-hint {
+.checkbox-hint, .option-hint {
   font-size: 11px;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+/* New styles for reorganized options */
+.option-section {
+  margin-bottom: 24px;
+  padding: 12px;
+  background: var(--bg-tertiary, rgba(0, 0, 0, 0.02));
+  border-radius: 6px;
+  border: 1px solid var(--border-light, rgba(0, 0, 0, 0.05));
+}
+
+.theme-dark .option-section {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.05);
+}
+
+.section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent, #6366f1);
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  margin-bottom: 10px;
+  opacity: 0.8;
+}
+
+/* Radio button styles */
+.radio-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.radio-label {
+  display: flex;
+  align-items: flex-start;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.radio-label input[type="radio"] {
+  display: none;
+}
+
+.radio-circle {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-color);
+  border-radius: 50%;
+  margin-right: 10px;
+  flex-shrink: 0;
+  position: relative;
+  transition: all 0.2s;
+  background: var(--bg-primary);
+}
+
+.radio-label:hover .radio-circle {
+  background: var(--bg-hover);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+}
+
+.radio-label input:checked + .radio-circle {
+  border-color: var(--accent);
+}
+
+.radio-label input:checked + .radio-circle::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.radio-text {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Disabled state styles */
+.checkbox-box.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  background: var(--bg-disabled, #f0f0f0);
+}
+
+.checkbox-text.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* Results */
@@ -1639,10 +2240,10 @@ body {
 }
 
 .progress-details {
-  margin-top: 12px;
-  padding-top: 12px;
+  margin-top: 8px;
+  padding-top: 8px;
   border-top: 1px solid var(--border-color);
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
@@ -1763,20 +2364,133 @@ body {
   align-items: center;
   justify-content: center;
   z-index: 1000;
+  backdrop-filter: blur(2px);
 }
 
 .modal-content {
-  background: var(--bg-secondary);
+  background: var(--bg-secondary, #2d2d30);
   border-radius: 8px;
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
   max-width: 80%;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
+  position: relative;
+  border: 1px solid var(--border-color, #444);
+  color: var(--text-primary, #ffffff);
 }
 
 .analysis-modal {
   width: 900px;
+}
+
+.clean-modal {
+  width: 600px;
+}
+
+.modal-body {
+  padding: 20px;
+  flex: 1;
+  overflow-y: auto;
+  color: var(--text-primary, #000000);
+  background: transparent;
+}
+
+.warning-box {
+  display: flex;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(255, 193, 7, 0.1);
+  border: 1px solid rgba(255, 193, 7, 0.3);
+  border-radius: 6px;
+  margin-bottom: 20px;
+}
+
+.theme-light .warning-box {
+  background: #fff3cd;
+  border-color: #ffc107;
+  color: #856404;
+}
+
+.theme-dark .warning-box {
+  background: rgba(255, 193, 7, 0.15);
+  border-color: rgba(255, 193, 7, 0.4);
+  color: #ffc107;
+}
+
+.warning-icon {
+  font-size: 24px;
+  flex-shrink: 0;
+}
+
+.device-name {
+  font-weight: 600;
+  color: var(--accent-color);
+  margin-top: 8px;
+}
+
+.clean-options {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.radio-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.radio-option:hover {
+  background: var(--hover-bg);
+  border-color: var(--accent-color);
+}
+
+.radio-option input[type="radio"] {
+  margin-top: 2px;
+}
+
+.radio-option span {
+  flex: 1;
+}
+
+.radio-option strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-primary);
+}
+
+.progress-section {
+  margin-top: 20px;
+}
+
+.progress-bar {
+  height: 8px;
+  background: var(--border-color);
+  border-radius: 4px;
+  overflow: hidden;
+  margin-bottom: 8px;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent-color);
+  transition: width 0.3s ease;
+}
+
+.btn-danger {
+  background: #dc3545;
+  color: white;
+}
+
+.btn-danger:hover:not(:disabled) {
+  background: #c82333;
 }
 
 .modal-header {

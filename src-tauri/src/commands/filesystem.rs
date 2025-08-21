@@ -6,9 +6,10 @@ use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use moses_formatters::device_reader::FilesystemReader;
 use moses_formatters::diagnostics::analyze_unknown_filesystem;
+use crate::filesystem_cache;
 
 // Cache for filesystem types to avoid repeated admin prompts
-static FILESYSTEM_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
+pub(crate) static FILESYSTEM_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| {
     Mutex::new(HashMap::new())
 });
 
@@ -311,7 +312,7 @@ async fn read_fat32_directory(
     let mut total_size = 0u64;
     let converted_entries: Vec<DirectoryEntry> = entries.into_iter().map(|entry| {
         if !entry.is_directory {
-            total_size += entry.size as u64;
+            total_size += entry.size;
         }
         DirectoryEntry {
             name: entry.name.clone(),
@@ -325,7 +326,7 @@ async fn read_fat32_directory(
             } else {
                 EntryType::File
             },
-            size: if entry.is_directory { None } else { Some(entry.size as u64) },
+            size: if entry.is_directory { None } else { Some(entry.size) },
             modified: None, // TODO: Parse FAT32 timestamps
             created: None,
             permissions: None,
@@ -527,6 +528,7 @@ pub async fn request_elevated_filesystem_detection(
     
     #[cfg(not(target_os = "windows"))]
     {
+        let _ = device_id; // Unused on non-Windows platforms
         Err("Filesystem detection not implemented for this platform".to_string())
     }
 }
@@ -573,6 +575,10 @@ pub async fn analyze_filesystem(
         match analyze_unknown_filesystem(&device) {
             Ok(report) => {
                 log::info!("Filesystem analysis completed successfully");
+                
+                // Cache the result
+                cache_analysis_result(&device_id, &report);
+                
                 return Ok(report);
             }
             Err(e) => {
@@ -602,6 +608,10 @@ pub async fn analyze_filesystem(
         match analyze_unknown_filesystem(&device) {
             Ok(report) => {
                 log::info!("Filesystem analysis completed successfully");
+                
+                // Cache the result
+                cache_analysis_result(&device_id, &report);
+                
                 Ok(report)
             }
             Err(e) => {
@@ -668,6 +678,9 @@ pub async fn analyze_filesystem_elevated(
                 
                 // Clean up result file
                 let _ = fs::remove_file(&result_path);
+                
+                // Cache the result
+                cache_analysis_result(&device_id, &result);
                 
                 return Ok(result);
             } else {
@@ -750,6 +763,43 @@ pub async fn analyze_filesystem_elevated(
     {
         // On non-Windows, just call the regular analyze
         analyze_filesystem(device_id).await
+    }
+}
+
+/// Cache the analysis result
+fn cache_analysis_result(device_id: &str, report_json: &str) {
+    // Try to parse the JSON report to extract filesystem info
+    if let Ok(report) = serde_json::from_str::<serde_json::Value>(report_json) {
+        let filesystem = report["filesystem"]
+            .as_str()
+            .unwrap_or("unknown")
+            .to_string();
+        
+        let partition_table = report["partition_table"]
+            .as_str()
+            .map(|s| s.to_string());
+        
+        let partitions = if let Some(parts) = report["partitions"].as_array() {
+            parts.iter().map(|p| {
+                filesystem_cache::PartitionInfo {
+                    number: p["number"].as_u64().unwrap_or(0) as u32,
+                    filesystem: p["filesystem"].as_str().map(|s| s.to_string()),
+                    size: p["size"].as_u64().unwrap_or(0),
+                    start_offset: p["start_offset"].as_u64().unwrap_or(0),
+                }
+            }).collect()
+        } else {
+            vec![]
+        };
+        
+        let cached_info = filesystem_cache::CachedFilesystemInfo {
+            filesystem,
+            partition_table,
+            partitions,
+            detected_at: std::time::SystemTime::now(),
+        };
+        
+        filesystem_cache::cache_filesystem_info(device_id, cached_info);
     }
 }
 

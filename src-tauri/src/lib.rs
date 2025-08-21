@@ -8,6 +8,8 @@ use moses_platform::windows::elevation::is_elevated;
 
 mod logging;
 pub mod commands;
+mod filesystem_cache;
+mod worker_server;
 
 #[cfg(target_os = "linux")]
 use moses_formatters::Ext4LinuxFormatter;
@@ -179,9 +181,34 @@ async fn execute_format_elevated(
 #[tauri::command]
 async fn enumerate_devices() -> Result<Vec<Device>, String> {
     let manager = PlatformDeviceManager;
-    let devices = manager.enumerate_devices()
+    let mut devices = manager.enumerate_devices()
         .await
         .map_err(|e| format!("Failed to enumerate devices: {}", e))?;
+    
+    // Check cache for any devices that don't have filesystem info
+    for device in &mut devices {
+        if device.filesystem.is_none() || device.filesystem.as_deref() == Some("unknown") {
+            // First check our in-memory cache (from recent format operations)
+            use commands::filesystem::FILESYSTEM_CACHE;
+            if let Ok(cache) = FILESYSTEM_CACHE.lock() {
+                if let Some(fs_type) = cache.get(&device.id) {
+                    log::info!("Using in-memory cached filesystem type for {}: {}", device.id, fs_type);
+                    device.filesystem = Some(fs_type.clone());
+                    continue;
+                }
+            }
+            
+            // Then check the persistent filesystem cache
+            if let Some(cached_info) = filesystem_cache::get_cached_filesystem_info(&device.id) {
+                if filesystem_cache::is_cache_fresh(&cached_info) {
+                    log::info!("Using cached filesystem info for {}: {}", device.id, cached_info.filesystem);
+                    device.filesystem = Some(cached_info.filesystem);
+                } else {
+                    log::debug!("Cached filesystem info for {} is stale", device.id);
+                }
+            }
+        }
+    }
     
     // Log detected devices and their filesystems
     for device in &devices {
@@ -597,6 +624,13 @@ pub fn run() {
             // Initialize our custom logger that sends logs to the UI
             logging::init_logger(app.handle().clone());
             
+            // Initialize the worker server for socket-based operations
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = worker_server::init_worker_server().await {
+                    log::error!("Failed to initialize worker server: {}", e);
+                }
+            });
+            
             // Note: We're not using tauri_plugin_log anymore since we have our own logger
             // that bridges the standard log crate to the UI console
             
@@ -613,6 +647,18 @@ pub fn run() {
             commands::filesystem::read_directory,
             commands::filesystem::read_file,
             commands::filesystem::copy_files,
+            commands::disk_management::clean_disk,
+            commands::disk_management::detect_conflicts,
+            commands::disk_management::convert_partition_style,
+            commands::disk_management::prepare_disk,
+            commands::disk_management::quick_clean,
+            commands::disk_management::needs_cleaning,
+            // Socket-based commands
+            commands::disk_management_socket::clean_disk_socket,
+            commands::disk_management_socket::format_disk_socket,
+            commands::disk_management_socket::detect_conflicts_socket,
+            commands::disk_management_socket::analyze_filesystem_socket,
+            commands::disk_management_socket::detect_filesystem_socket,
             commands::filesystem::detect_filesystem_elevated,
             commands::filesystem::request_elevated_filesystem_detection,
             commands::filesystem::get_filesystem_type,

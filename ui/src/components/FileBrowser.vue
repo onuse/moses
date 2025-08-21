@@ -1,19 +1,27 @@
 <template>
   <div class="file-browser">
-    <!-- Breadcrumb navigation -->
-    <div class="breadcrumb">
-      <button @click="navigateTo('/')" class="breadcrumb-item">
-        {{ drive.name }}
-      </button>
-      <template v-for="(segment, index) in pathSegments" :key="index">
-        <span class="breadcrumb-separator">/</span>
-        <button 
-          @click="navigateTo(getPathToSegment(index))" 
-          class="breadcrumb-item"
-        >
-          {{ segment }}
+    <!-- Drive header (unified with Format mode) -->
+    <div class="drive-header">
+      <div class="drive-info">
+        <span class="drive-name">{{ drive.name }}</span>
+        <span class="drive-separator">/</span>
+        <span class="drive-id">{{ drive.id }}</span>
+      </div>
+      <div class="breadcrumb-path" v-if="currentPath !== '/'">
+        <span class="path-separator">›</span>
+        <button @click="navigateTo('/')" class="breadcrumb-item">
+          Root
         </button>
-      </template>
+        <template v-for="(segment, index) in pathSegments" :key="index">
+          <span class="breadcrumb-separator">/</span>
+          <button 
+            @click="navigateTo(getPathToSegment(index))" 
+            class="breadcrumb-item"
+          >
+            {{ segment }}
+          </button>
+        </template>
+      </div>
     </div>
 
     <!-- Toolbar -->
@@ -68,7 +76,7 @@
         <div v-if="error.includes('unknown filesystem') || error.includes('Unable to detect')" class="unknown-fs-options">
           <p class="help-text">This drive's filesystem couldn't be detected. It might be ext4, ext3, or another Linux filesystem.</p>
           <button @click="detectWithAdmin" class="admin-button">
-            <i class="icon-shield"></i> Detect with Admin Rights
+            <i class="icon-shield"></i> Analyze Filesystem
           </button>
           <div class="try-options">
             <p>Or try reading as:</p>
@@ -128,7 +136,7 @@
         {{ formatSize(selectionSize) }}
       </span>
       <span class="drive-info">
-        {{ drive.filesystem }} filesystem · {{ formatSize(drive.used) }} used of {{ formatSize(drive.size) }}
+        {{ formatFilesystemName(drive.filesystem) }} · {{ formatSize(drive.used || 0) }} used of {{ formatSize(drive.size) }}
       </span>
     </div>
 
@@ -165,6 +173,7 @@ export default {
       required: true
     }
   },
+  emits: ['copy-files', 'export-files', 'show-properties', 'update-filesystem'],
   setup(props, { emit }) {
     // State
     const currentPath = ref('/')
@@ -337,6 +346,33 @@ export default {
       const index = Math.floor(Math.log(bytes) / Math.log(1024))
       return `${(bytes / Math.pow(1024, index)).toFixed(1)} ${units[index]}`
     }
+    
+    function formatFilesystemName(fs) {
+      if (!fs || fs === 'unknown') return 'Unknown filesystem'
+      
+      // Format common filesystem names nicely
+      const fsMap = {
+        'ntfs': 'NTFS',
+        'fat32': 'FAT32',
+        'fat16': 'FAT16',
+        'exfat': 'exFAT',
+        'ext2': 'ext2',
+        'ext3': 'ext3',
+        'ext4': 'ext4',
+        'apfs': 'APFS',
+        'hfs+': 'HFS+',
+        'btrfs': 'Btrfs',
+        'xfs': 'XFS',
+        'zfs': 'ZFS',
+        'gpt': 'GPT partition table',
+        'gpt-empty': 'Empty GPT disk',
+        'mbr': 'MBR partition table',
+        'mbr-empty': 'Empty MBR disk',
+        'uninitialized': 'Uninitialized disk'
+      }
+      
+      return fsMap[fs.toLowerCase()] || fs + ' filesystem'
+    }
 
     function formatDate(timestamp) {
       if (!timestamp) return ''
@@ -396,33 +432,60 @@ export default {
         
         // Show message about admin requirement
         const userConfirmed = confirm(
-          'Administrator privileges are required to detect the filesystem type.\n\n' +
+          'Analyzing the filesystem may require administrator privileges.\n\n' +
           'Windows will prompt you for permission (UAC).\n' +
-          'This is only needed once per drive.\n\n' +
+          'The analysis will provide detailed information about partitions and filesystems.\n\n' +
           'Continue?'
         )
         
         if (!userConfirmed) {
-          error.value = 'Filesystem detection cancelled'
+          error.value = 'Filesystem analysis cancelled'
           loading.value = false
           return
         }
         
         // Request detection with elevation
         // The backend will handle the UAC prompt
-        const detectedFs = await invoke('request_elevated_filesystem_detection', {
+        const result = await invoke('analyze_filesystem', {
           deviceId: props.drive.id
         })
         
-        // Update the drive's filesystem
-        props.drive.filesystem = detectedFs
-        console.log(`Detected filesystem: ${detectedFs}`)
-        
-        // Try loading directory again
-        await loadDirectory(currentPath.value)
+        // Update the drive's filesystem from the analysis result
+        if (result && result.filesystem) {
+          // Emit event to parent to update the device
+          emit('update-filesystem', {
+            deviceId: props.drive.id,
+            filesystem: result.filesystem
+          })
+          console.log(`Detected filesystem: ${result.filesystem}`)
+          
+          // Show the analysis result in a popup like the Analyze button does
+          if (result.partition_table || result.partitions) {
+            let message = `Drive Analysis Results:\n\n`
+            message += `Filesystem: ${result.filesystem || 'Unknown'}\n`
+            if (result.partition_table) {
+              message += `Partition Table: ${result.partition_table}\n`
+            }
+            if (result.partitions && result.partitions.length > 0) {
+              message += `\nPartitions:\n`
+              result.partitions.forEach((p, i) => {
+                message += `  ${i + 1}. ${p.filesystem || 'Unknown'} - ${formatSize(p.size)}\n`
+              })
+            }
+            alert(message)
+          }
+          
+          // Try loading directory again if we detected a readable filesystem
+          if (result.filesystem && result.filesystem !== 'unknown' && 
+              !result.filesystem.includes('gpt') && !result.filesystem.includes('mbr')) {
+            await loadDirectory(currentPath.value)
+          }
+        } else {
+          error.value = 'Unable to detect filesystem type'
+        }
       } catch (err) {
-        error.value = `Failed to detect filesystem: ${err}`
-        console.error('Filesystem detection error:', err)
+        error.value = `Failed to analyze filesystem: ${err}`
+        console.error('Filesystem analysis error:', err)
       } finally {
         loading.value = false
       }
@@ -483,6 +546,7 @@ export default {
       isSelected,
       getFileIcon,
       formatSize,
+      formatFilesystemName,
       formatDate,
       startDrag,
       showContextMenu,
@@ -507,14 +571,51 @@ export default {
   background: var(--bg-primary);
 }
 
-/* Breadcrumb */
-.breadcrumb {
+/* Unified Drive Header (matches Format mode) */
+.drive-header {
   padding: 8px 16px;
   background: var(--bg-secondary);
   border-bottom: 1px solid var(--border-color);
   display: flex;
   align-items: center;
+  gap: 12px;
+}
+
+.drive-header .drive-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.drive-header .drive-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.drive-header .drive-separator {
+  color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 12px;
+}
+
+.drive-header .drive-id {
+  font-size: 11px;
+  color: var(--text-secondary);
+  opacity: 0.8;
+}
+
+.breadcrumb-path {
+  display: flex;
+  align-items: center;
   gap: 4px;
+}
+
+.path-separator {
+  color: var(--text-secondary);
+  margin: 0 4px;
+  opacity: 0.5;
 }
 
 .breadcrumb-item {
@@ -522,9 +623,10 @@ export default {
   border: none;
   color: var(--text-primary);
   cursor: pointer;
-  padding: 4px 8px;
-  border-radius: 4px;
+  padding: 2px 6px;
+  border-radius: 3px;
   transition: background 0.2s;
+  font-size: 12px;
 }
 
 .breadcrumb-item:hover {
@@ -533,6 +635,8 @@ export default {
 
 .breadcrumb-separator {
   color: var(--text-secondary);
+  opacity: 0.5;
+  font-size: 12px;
 }
 
 /* Toolbar */

@@ -446,10 +446,24 @@ impl DeviceManager for WindowsDeviceManager {
                             // Windows might report "raw" for ext4 or other unrecognized filesystems
                             if fs_type == "raw" {
                                 log::info!("Windows reports RAW filesystem for {} - might be ext4 or other Linux filesystem", drive_key);
-                                // Don't set filesystem, keep trying other methods
+                                // Try direct detection on the drive letter path
+                                let drive_path = format!("{}:", drive_key.trim_end_matches(':'));
+                                if let Some(detected_fs) = Self::detect_filesystem(&drive_path) {
+                                    filesystem = Some(detected_fs);
+                                    log::info!("Direct detection found '{}' filesystem on {}", filesystem.as_ref().unwrap(), drive_path);
+                                    break;
+                                }
                             } else {
                                 filesystem = Some(fs_type.clone());
                                 log::info!("Got filesystem type '{}' from batch query for {}", fs_type, drive_key);
+                                break;
+                            }
+                        } else {
+                            // No info from Windows, try direct detection on drive letter
+                            let drive_path = format!("{}:", drive_key.trim_end_matches(':'));
+                            if let Some(detected_fs) = Self::detect_filesystem(&drive_path) {
+                                filesystem = Some(detected_fs);
+                                log::info!("Direct detection found '{}' filesystem on {}", filesystem.as_ref().unwrap(), drive_path);
                                 break;
                             }
                         }

@@ -9,7 +9,10 @@ pub mod utils;
 pub mod detection;
 pub mod device_reader;
 pub mod diagnostics;
+pub mod diagnostics_improved;
 pub mod partitioner;
+pub mod disk_manager;
+pub mod fat_common;
 
 #[cfg(target_os = "linux")]
 pub mod ext4_linux;

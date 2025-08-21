@@ -45,11 +45,12 @@ Moses aims to be the go-to cross-platform drive formatting tool, with a special 
 
 ## 🚧 In Progress
 
-### Current Sprint (EXT4 Windows Testing)
-- [ ] Test EXT4 formatting on actual Kingston DataTraveler 3.0
-- [ ] Verify WSL device path mapping accuracy
-- [ ] Handle edge cases (multiple USB drives, path conflicts)
-- [ ] Add better error messages for WSL issues
+### Current Sprint (FAT32 Implementation Complete!)
+- [x] Implement native FAT32 formatter without external tools
+- [x] Create modular FAT validation framework 
+- [x] Fix FAT32 device access issues (physical drive vs volume paths)
+- [x] Test FAT32 formatter on real hardware
+- [x] Add FAT32 to UI filesystem options
 
 ## 📋 Short-term TODOs (Next Week)
 
@@ -72,8 +73,11 @@ Moses aims to be the go-to cross-platform drive formatting tool, with a special 
 
 4. **Other Filesystems**
    - [ ] NTFS formatter implementation
-   - [ ] FAT32 formatter implementation
+   - [x] FAT32 formatter implementation (COMPLETE - native, no external tools)
+   - [x] FAT16 formatter implementation (COMPLETE - native, validated)
    - [ ] exFAT formatter implementation
+   - [ ] Add partitioner support to exFAT formatter
+   - [ ] Add partitioner support to ext4 formatter
 
 5. **Polish for Release**
    - [ ] Add application icon/logo
@@ -88,6 +92,8 @@ Moses aims to be the go-to cross-platform drive formatting tool, with a special 
   - Real-time progress from mkfs commands
   - Progress bar in GUI
   - ETA calculation
+  - [ ] Add progress callbacks to disk operations
+  - [ ] Add progress indicators for long operations
 
 - [ ] **Advanced Options**
   - Cluster size selection
@@ -158,6 +164,8 @@ Moses aims to be the go-to cross-platform drive formatting tool, with a special 
 - [ ] WSL2 device mapping may fail with >3 USB devices
 - [ ] No rollback if format fails mid-operation
 - [ ] GUI doesn't refresh after format completes
+- [ ] Get actual device CHS geometry instead of hardcoding 63/255
+- [ ] Auto-analyze unknown filesystems and update device info
 
 ### Medium Priority
 - [ ] CLI doesn't support --no-confirm flag
@@ -203,17 +211,37 @@ Moses aims to be the go-to cross-platform drive formatting tool, with a special 
 
 ## 📝 Notes for Next Session
 
+### Recent Accomplishments (2025-08-20)
+1. **FAT32 Implementation Complete**: Native FAT32 formatter without external tools
+2. **Modular FAT Architecture**: Created shared FAT components with ~40% code reuse
+3. **Socket-Based Worker**: Unified all UAC operations through persistent worker
+4. **Fixed Device Access**: Resolved physical drive vs volume path issues
+
+### Architecture Improvements Made
+- **Socket-Based Worker System**: Single UAC prompt per session using TCP localhost
+- **FAT Module Structure**: 
+  - `fat_common/` - Shared components (constants, boot sector, cluster calc, FAT writer)
+  - `fat16/` and `fat32/` - Specific implementations
+  - Comprehensive validation framework for both
+- **Critical Windows Fixes**:
+  - Always use physical drive paths for formatting
+  - Keep file handles open throughout operations
+  - Dismount volumes before formatting
+
 When continuing development:
-1. **First priority**: Test the Kingston DataTraveler EXT4 format
-2. **Check WSL2 mapping**: The path translation might need adjustment
-3. **Run scripts**: Use `scripts/windows/check_ext4_ready.ps1` first
-4. **Build command**: `cargo build --package moses-cli --release`
-5. **Test command**: `target\release\moses.exe format "Kingston DataTraveler" ext4`
+1. **UI Enhancements**: Add MBR/GPT conversion UI, conflict warnings, 'Prepare Disk' wizard
+2. **NTFS Reader**: Implement NTFS filesystem reader
+3. **Progress System**: Add real-time progress callbacks and indicators
+4. **Build command**: `cargo build --release` in src-tauri directory
+5. **Test FAT32**: Format USB drives through Moses UI and verify Windows recognition
 
 ### Key Files to Review
-- `formatters/src/ext4_windows.rs` - Windows EXT4 implementation
+- `formatters/src/fat32/formatter_native.rs` - Native FAT32 implementation
+- `formatters/src/fat_common/` - Shared FAT components
+- `formatters/src/utils.rs` - Device access utilities
+- `src-tauri/src/commands/disk_management_socket.rs` - Socket-based worker commands
+- `src-tauri/src/bin/moses-elevated-worker.rs` - Elevated worker process
 - `platform/src/windows/device.rs` - Device enumeration
-- `cli/src/main.rs` - CLI format command
 - `src-tauri/src/lib.rs` - GUI backend integration
 
 ### Development Environment Notes
@@ -224,5 +252,6 @@ When continuing development:
 
 ---
 
-*Last Updated: Current Session*
-*Next Review: When implementing NTFS formatter*
+*Last Updated: 2025-08-20*
+*Status: FAT16 and FAT32 implementations complete and working*
+*Next Focus: UI enhancements and NTFS reader implementation*

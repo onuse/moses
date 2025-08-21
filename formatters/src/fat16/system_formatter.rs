@@ -181,6 +181,7 @@ impl FilesystemFormatter for Fat16SystemFormatter {
         #[cfg(not(target_os = "windows"))]
         {
             // On Linux/Mac, use mkfs.vfat or similar
+            let _ = options; // Will be used when implemented
             return Err(MosesError::Other("FAT16 formatting not yet implemented for this platform".to_string()));
         }
     }

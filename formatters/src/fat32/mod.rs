@@ -1,10 +1,15 @@
 // FAT32 module - formatter and reader
 
 pub mod formatter;
+pub mod formatter_native;
 pub mod reader;
 pub mod reader_improved;
+pub mod validator;
 
-pub use formatter::Fat32Formatter;
+// Use the native formatter as default (like FAT16)
+pub use formatter_native::Fat32NativeFormatter as Fat32Formatter;
+// Keep the system formatter available for testing
+pub use formatter::Fat32Formatter as Fat32SystemFormatter;
 // Use the improved reader that uses aligned device reading
 pub use reader_improved::Fat32ReaderImproved as Fat32Reader;
 

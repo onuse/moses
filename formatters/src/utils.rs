@@ -72,13 +72,53 @@ pub fn open_device_read(device: &Device) -> Result<File, MosesError> {
 }
 
 /// Open a device for writing (formatting)
+/// For formatting, we always use the physical drive path, not drive letters
 pub fn open_device_write(device: &Device) -> Result<File, MosesError> {
-    let path = get_device_path(device);
-    std::fs::OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(&path)
-        .map_err(|e| MosesError::Other(format!("Failed to open device {} for writing: {}", path, e)))
+    // For formatting, always use physical drive path (device.id), not drive letters
+    // This is because after writing MBR, drive letters become invalid
+    let path = if device.id.starts_with(r"\\.\") {
+        device.id.clone()
+    } else {
+        format!(r"\\.\{}", device.id)
+    };
+    
+    #[cfg(target_os = "windows")]
+    {
+        // On Windows, we need to use CreateFileW with special flags for raw device access
+        use std::os::windows::fs::OpenOptionsExt;
+        use winapi::um::winbase::FILE_FLAG_WRITE_THROUGH;
+        
+        log::info!("Opening Windows device for writing: {}", path);
+        
+        // Try with Windows-specific flags for raw device access
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .custom_flags(FILE_FLAG_WRITE_THROUGH) // Don't use NO_BUFFERING for FAT32
+            .open(&path)
+            .or_else(|e| {
+                log::warn!("Failed with WRITE_THROUGH ({}), trying without flags", e);
+                // Fallback to regular open
+                std::fs::OpenOptions::new()
+                    .read(true)
+                    .write(true)
+                    .open(&path)
+            })
+            .map_err(|e| {
+                log::error!("Failed to open device {} for writing: {} (OS error: {:?})", 
+                          path, e, e.raw_os_error());
+                MosesError::Other(format!("Failed to open device {} for writing: {}", path, e))
+            })
+    }
+    
+    #[cfg(not(target_os = "windows"))]
+    {
+        std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&path)
+            .map_err(|e| MosesError::Other(format!("Failed to open device {} for writing: {}", path, e)))
+    }
 }
 
 /// Read a sector (512 bytes) from a specific offset

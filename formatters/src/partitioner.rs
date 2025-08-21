@@ -1,7 +1,12 @@
 // Partition table management for Moses
 // Handles creation of MBR and GPT partition tables
 
+
+pub mod mbr_verifier;
 use moses_core::{Device, MosesError};
+
+#[cfg(test)]
+mod mbr_tests;
 use std::io::{Write, Seek, SeekFrom};
 use log::info;
 
@@ -55,30 +60,73 @@ fn create_mbr_single_partition(device: &Device, filesystem_type: &str) -> Result
         _ => 0x83,        // Linux native
     };
     
-    // Calculate CHS values (simplified - use LBA)
-    let start_lba = 2048u32;  // Start at 1MB for alignment
+    // Calculate partition parameters
+    let start_lba = 2048u32;  // Start at 1MB for alignment (standard for modern systems)
     let total_sectors = (device.size / 512) as u32;
     let partition_size = total_sectors.saturating_sub(start_lba);
     
+    // Calculate CHS values (for compatibility, though LBA is used)
+    // Standard geometry: 255 heads, 63 sectors per track
+    let heads = 255u32;
+    let sectors_per_track = 63u32;
+    let cylinder_size = heads * sectors_per_track;
+    
+    // Starting CHS (for LBA 2048)
+    let start_cylinder = start_lba / cylinder_size;
+    let start_temp = start_lba % cylinder_size;
+    let start_head = start_temp / sectors_per_track;
+    let start_sector = (start_temp % sectors_per_track) + 1; // Sectors are 1-based
+    
+    // Ending CHS
+    let end_lba = start_lba + partition_size - 1;
+    let end_cylinder = end_lba / cylinder_size;
+    let end_temp = end_lba % cylinder_size;
+    let end_head = end_temp / sectors_per_track;
+    let end_sector = (end_temp % sectors_per_track) + 1;
+    
+    // If cylinder > 1023, use maximum CHS values (LBA will be used instead)
+    let (end_chs_head, end_chs_sector, end_chs_cyl) = if end_cylinder > 1023 {
+        (0xFE, 0xFF, 0xFF)  // Maximum CHS values - indicates to use LBA
+    } else {
+        (
+            end_head as u8,
+            ((end_sector & 0x3F) | ((end_cylinder >> 2) & 0xC0)) as u8,
+            (end_cylinder & 0xFF) as u8
+        )
+    };
+    
     // Partition entry 1
     mbr[partition_offset] = 0x80;  // Bootable flag
-    mbr[partition_offset + 1] = 0x00;  // Starting head
-    mbr[partition_offset + 2] = 0x01;  // Starting sector (bits 0-5) + cylinder high (bits 6-7)
-    mbr[partition_offset + 3] = 0x00;  // Starting cylinder low
+    mbr[partition_offset + 1] = start_head as u8;  // Starting head
+    mbr[partition_offset + 2] = ((start_sector & 0x3F) | ((start_cylinder >> 2) & 0xC0)) as u8;  // Starting sector + cylinder high
+    mbr[partition_offset + 3] = (start_cylinder & 0xFF) as u8;  // Starting cylinder low
     mbr[partition_offset + 4] = partition_type;  // Partition type
-    mbr[partition_offset + 5] = 0xFE;  // Ending head
-    mbr[partition_offset + 6] = 0xFF;  // Ending sector + cylinder high
-    mbr[partition_offset + 7] = 0xFF;  // Ending cylinder low
+    mbr[partition_offset + 5] = end_chs_head;  // Ending head
+    mbr[partition_offset + 6] = end_chs_sector;  // Ending sector + cylinder high
+    mbr[partition_offset + 7] = end_chs_cyl;  // Ending cylinder low
     
     // LBA values
     mbr[partition_offset + 8..partition_offset + 12].copy_from_slice(&start_lba.to_le_bytes());
     mbr[partition_offset + 12..partition_offset + 16].copy_from_slice(&partition_size.to_le_bytes());
     
+    // Disk signature (required by Windows to recognize the MBR)
+    // Random 4-byte signature at offset 440 (0x1B8)
+    // Windows requires this to be non-zero for MBR disks
+    let disk_sig = rand::random::<u32>();
+    // Ensure it's not zero (Windows requirement)
+    let disk_sig = if disk_sig == 0 { 0x12345678 } else { disk_sig };
+    mbr[440..444].copy_from_slice(&disk_sig.to_le_bytes());
+    
     // MBR signature
     mbr[510] = 0x55;
     mbr[511] = 0xAA;
     
-    info!("Created MBR with single {} partition starting at LBA {}", filesystem_type, start_lba);
+    info!("Created MBR with single {} partition:", filesystem_type);
+    info!("  Partition type: 0x{:02X}", partition_type);
+    info!("  Start LBA: {} (offset {} bytes)", start_lba, start_lba * 512);
+    info!("  Size: {} sectors ({} MB)", partition_size, partition_size * 512 / 1024 / 1024);
+    info!("  Disk signature: 0x{:08X}", disk_sig);
+    info!("  CHS geometry: 255 heads, 63 sectors/track");
     
     Ok(mbr)
 }

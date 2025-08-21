@@ -2062,6 +2062,7 @@ dependencies = [
  "log",
  "moses-core",
  "nix",
+ "rand 0.8.5",
  "serde",
  "static_assertions",
  "tokio",
