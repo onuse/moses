@@ -116,6 +116,10 @@ lcov.info
 test-results/
 *.log
 logs/
+*.sh 
+*.bat
+*.ps1
+
 
 # ========================
 # Environment & Secrets
@@ -203,6 +207,7 @@ docs/api/
 *.tar.gz
 *.rar
 *.7z
+*.png
 
 # Database files
 *.db
