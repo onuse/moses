@@ -234,4 +234,92 @@ pub async fn detect_filesystem_socket(
         Ok(_) => Err("Unexpected response from worker".to_string()),
         Err(e) => Err(format!("Worker communication failed: {}", e)),
     }
+}/// Convert partition table style using the persistent worker
+#[tauri::command]
+pub async fn convert_partition_style_socket(
+    device_id: String,
+    target_style: String,
+) -> Result<String, String> {
+    // Get the device by ID
+    let device = get_device_by_id(&device_id)
+        .await
+        .ok_or_else(|| format!("Device not found: {}", device_id))?;
+    
+    // Safety check
+    if device.is_system {
+        return Err("Cannot convert system disk partition style".to_string());
+    }
+    
+    // Validate target style
+    match target_style.as_str() {
+        "mbr" | "gpt" | "uninitialized" => {},
+        _ => return Err(format!("Invalid partition style: {}", target_style)),
+    }
+    
+    // Get the worker server
+    let server_arc = get_worker_server().await
+        .map_err(|e| format!("Failed to get worker server: {}", e))?;
+    
+    let mut server_guard = server_arc.lock().await;
+    let server = server_guard.as_mut()
+        .ok_or_else(|| "Worker server not initialized".to_string())?;
+    
+    // Send convert command to worker
+    let command = WorkerCommand::Convert {
+        device,
+        target_style: target_style.clone(),
+    };
+    
+    match server.execute_command(command).await {
+        Ok(WorkerResponse::Success(msg)) => Ok(msg),
+        Ok(WorkerResponse::Error(err)) => Err(err),
+        Ok(_) => Err("Unexpected response from worker".to_string()),
+        Err(e) => Err(format!("Worker communication failed: {}", e)),
+    }
+}
+
+/// Prepare a disk for formatting using the persistent worker
+#[tauri::command]
+pub async fn prepare_disk_socket(
+    device_id: String,
+    target_style: String,
+    clean_first: bool,
+) -> Result<String, String> {
+    // Get the device by ID
+    let device = get_device_by_id(&device_id)
+        .await
+        .ok_or_else(|| format!("Device not found: {}", device_id))?;
+    
+    // Safety check
+    if device.is_system {
+        return Err("Cannot prepare system disk".to_string());
+    }
+    
+    // Validate target style
+    match target_style.as_str() {
+        "mbr" | "gpt" | "uninitialized" => {},
+        _ => return Err(format!("Invalid partition style: {}", target_style)),
+    }
+    
+    // Get the worker server
+    let server_arc = get_worker_server().await
+        .map_err(|e| format!("Failed to get worker server: {}", e))?;
+    
+    let mut server_guard = server_arc.lock().await;
+    let server = server_guard.as_mut()
+        .ok_or_else(|| "Worker server not initialized".to_string())?;
+    
+    // Send prepare command to worker
+    let command = WorkerCommand::Prepare {
+        device,
+        target_style: target_style.clone(),
+        clean_first,
+    };
+    
+    match server.execute_command(command).await {
+        Ok(WorkerResponse::Success(msg)) => Ok(msg),
+        Ok(WorkerResponse::Error(err)) => Err(err),
+        Ok(_) => Err("Unexpected response from worker".to_string()),
+        Err(e) => Err(format!("Worker communication failed: {}", e)),
+    }
 }

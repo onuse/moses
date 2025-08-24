@@ -1,11 +1,21 @@
-// exFAT module - formatter and reader
+// exFAT module - native formatter and reader implementation
 
 pub mod formatter;
+pub mod formatter_native;
 pub mod reader;
 pub mod reader_improved;
 pub mod reader_aligned;
+pub mod structures;
+pub mod bitmap;
+pub mod upcase;
+pub mod validator;
+pub mod directory_entries;
+pub mod file_operations;
 
-pub use formatter::ExFatFormatter;
+// Use the native formatter as default
+pub use formatter_native::ExFatNativeFormatter as ExFatFormatter;
+// Keep the system formatter available for compatibility
+pub use formatter::ExFatFormatter as ExFatSystemFormatter;
 // Use the aligned reader that leverages our common abstraction
 pub use reader_aligned::ExFatReaderAligned as ExFatReader;
 

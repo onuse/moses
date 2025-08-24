@@ -3,60 +3,67 @@
 
 use moses_core::{Device, MosesError, FormatOptions, FilesystemFormatter, SimulationReport, Platform};
 use async_trait::async_trait;
-use std::fs::OpenOptions;
 use std::io::{Write, Seek, SeekFrom};
-use log::info;
+use log::{info, warn};
 use std::time::SystemTime;
 
 pub struct Fat16CompliantFormatter;
 
 impl Fat16CompliantFormatter {
-    fn calculate_fat16_params(size_bytes: u64) -> Result<(u8, u16, u16), MosesError> {
-        let total_sectors = size_bytes / 512;
+    fn calculate_fat16_params(size_bytes: u64, requested_cluster_size: Option<u32>) -> Result<(u8, u16, u16), MosesError> {
+        // Use the validated parameter calculation
+        use super::validation::validate_and_fix_fat16_params;
         
-        // Microsoft's recommended cluster sizes for FAT16
-        let sectors_per_cluster = if total_sectors <= 32_680 {
-            2   // 1KB clusters for <= 16MB
-        } else if total_sectors <= 262_144 {
-            4   // 2KB clusters for <= 128MB
-        } else if total_sectors <= 524_288 {
-            8   // 4KB clusters for <= 256MB
-        } else if total_sectors <= 1_048_576 {
-            16  // 8KB clusters for <= 512MB
-        } else if total_sectors <= 2_097_152 {
-            32  // 16KB clusters for <= 1GB
-        } else if total_sectors <= 4_194_304 {
-            64  // 32KB clusters for <= 2GB
-        } else if total_sectors <= 8_388_608 {
-            128 // 64KB clusters for <= 4GB (maximum for FAT16)
+        // If user specified a cluster size, validate it works with the device size
+        if let Some(cluster_bytes) = requested_cluster_size {
+            let sectors_per_cluster = (cluster_bytes / 512) as u8;
+            let total_sectors = size_bytes / 512;
+            
+            // Calculate with the requested cluster size
+            let reserved_sectors = 1u16;
+            let _num_fats = 2u8;
+            let root_entries = 512u16;
+            let root_dir_sectors = (root_entries * 32 + 511) / 512;
+            
+            // Estimate data area
+            let data_start_estimate = reserved_sectors + root_dir_sectors;
+            let usable_sectors = total_sectors.saturating_sub(data_start_estimate as u64);
+            let total_clusters = usable_sectors / sectors_per_cluster as u64;
+            
+            // Validate cluster count for FAT16
+            if total_clusters < 4085 {
+                return Err(MosesError::Other(format!(
+                    "Cluster size {} bytes produces too few clusters ({}) for FAT16. Minimum is 4085.",
+                    cluster_bytes, total_clusters
+                )));
+            }
+            if total_clusters > 65524 {
+                return Err(MosesError::Other(format!(
+                    "Cluster size {} bytes produces too many clusters ({}) for FAT16. Maximum is 65524.",
+                    cluster_bytes, total_clusters
+                )));
+            }
+            
+            // Calculate FAT size
+            let fat_entries = total_clusters + 2;
+            let fat_bytes = fat_entries * 2;
+            let sectors_per_fat = ((fat_bytes + 511) / 512) as u16;
+            
+            info!("Using user-specified cluster size: {} bytes ({} sectors)", 
+                  cluster_bytes, sectors_per_cluster);
+            
+            return Ok((sectors_per_cluster, sectors_per_fat, root_entries));
+        }
+        
+        // Otherwise use automatic calculation
+        let (sectors_per_cluster, sectors_per_fat, root_entries, notes) = 
+            validate_and_fix_fat16_params(size_bytes)?;
+        
+        if notes.contains("WARNING") {
+            warn!("FAT16 validation: {}", notes);
         } else {
-            return Err(MosesError::Other("Volume too large for FAT16 (max 4GB with 64KB clusters)".to_string()));
-        };
-        
-        // Standard root directory entries for FAT16
-        let root_entries = 512u16;
-        
-        // Calculate data sectors
-        let root_dir_sectors = (root_entries * 32 + 511) / 512;
-        let reserved_sectors = 1u16;
-        
-        // Estimate FAT size
-        let data_start_estimate = reserved_sectors + root_dir_sectors;
-        let usable_sectors = total_sectors.saturating_sub(data_start_estimate as u64);
-        let total_clusters = usable_sectors / sectors_per_cluster as u64;
-        
-        // Validate cluster count for FAT16 (must be between 4085 and 65524)
-        if total_clusters < 4085 {
-            return Err(MosesError::Other("Volume too small for FAT16".to_string()));
+            info!("FAT16 validation: {}", notes);
         }
-        if total_clusters > 65524 {
-            return Err(MosesError::Other("Too many clusters for FAT16".to_string()));
-        }
-        
-        // Calculate FAT size (each FAT entry is 2 bytes)
-        let fat_entries = total_clusters + 2; // +2 for reserved entries
-        let fat_bytes = fat_entries * 2;
-        let sectors_per_fat = ((fat_bytes + 511) / 512) as u16;
         
         Ok((sectors_per_cluster, sectors_per_fat, root_entries))
     }
@@ -188,6 +195,25 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
         if options.filesystem_type != "fat16" {
             return Err(MosesError::Other("Invalid filesystem type for FAT16 formatter".to_string()));
         }
+        
+        // Validate cluster size if specified
+        if let Some(cluster_size) = options.cluster_size {
+            // FAT16 supports cluster sizes from 512 bytes to 32KB (64 sectors)
+            let valid_sizes = [512, 1024, 2048, 4096, 8192, 16384, 32768];
+            
+            if !valid_sizes.contains(&cluster_size) {
+                return Err(MosesError::Other(format!(
+                    "Invalid cluster size {} for FAT16. Valid sizes are: 512, 1024, 2048, 4096, 8192, 16384, 32768 bytes",
+                    cluster_size
+                )));
+            }
+            
+            // Warn about larger cluster sizes
+            if cluster_size > 16384 {
+                warn!("Cluster size {} bytes may have compatibility issues with older systems", cluster_size);
+            }
+        }
+        
         Ok(())
     }
     
@@ -197,7 +223,7 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
     
     async fn dry_run(&self, device: &Device, options: &FormatOptions) -> Result<SimulationReport, MosesError> {
         let (_sectors_per_cluster, sectors_per_fat, root_entries) = 
-            Self::calculate_fat16_params(device.size)?;
+            Self::calculate_fat16_params(device.size, options.cluster_size)?;
         
         let fat_size = sectors_per_fat as u64 * 512 * 2; // 2 FATs
         let root_dir_size = root_entries as u64 * 32;
@@ -241,7 +267,7 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
         
         let total_sectors = partition_size / 512;
         let (sectors_per_cluster, sectors_per_fat, root_entries) = 
-            Self::calculate_fat16_params(partition_size)?;
+            Self::calculate_fat16_params(partition_size, options.cluster_size)?;
         
         info!("FAT16 parameters: {} sectors, {} sectors/cluster, {} sectors/FAT, {} root entries",
               total_sectors, sectors_per_cluster, sectors_per_fat, root_entries);
@@ -257,25 +283,19 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
             options.label.as_deref(),
         );
         
-        // Open device for writing
-        let device_path = if !device.mount_points.is_empty() {
-            let mount = &device.mount_points[0];
-            let mount_str = mount.to_string_lossy();
-            if mount_str.len() >= 2 && mount_str.chars().nth(1) == Some(':') {
-                format!("\\\\.\\{}", mount_str.trim_end_matches('\\'))
-            } else {
-                device.id.clone()
-            }
-        } else {
-            device.id.clone()
-        };
+        // Verify boot sector has correct data
+        info!("Boot sector verification:");
+        info!("  Jump: {:02X} {:02X} {:02X}", boot_sector_bytes[0], boot_sector_bytes[1], boot_sector_bytes[2]);
+        info!("  Bytes per sector at 0x0B: {:04X}", u16::from_le_bytes([boot_sector_bytes[0x0B], boot_sector_bytes[0x0C]]));
+        info!("  Sectors per cluster at 0x0D: {:02X}", boot_sector_bytes[0x0D]);
+        info!("  Boot signature at 0x1FE: {:02X} {:02X}", boot_sector_bytes[0x1FE], boot_sector_bytes[0x1FF]);
         
-        info!("Opening device at: {}", device_path);
+        // Open device for writing using proper physical drive access
+        use crate::utils::open_device_write;
         
-        let mut file = OpenOptions::new()
-            .write(true)
-            .open(&device_path)
-            .map_err(|e| MosesError::Other(format!("Failed to open device: {}", e)))?;
+        info!("Opening device for writing: {}", device.name);
+        
+        let mut file = open_device_write(device)?;
         
         // Write partition table if requested
         if create_partition {
@@ -289,7 +309,14 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
                 "fat16"
             )?;
             
+            // Write the partition table
             write_partition_table(&mut file, &partition_table)?;
+            
+            // Use sync_all like FAT32 does - this is crucial!
+            file.sync_all()
+                .map_err(|e| MosesError::Other(format!("Failed to sync after partition write: {}", e)))?;
+            
+            info!("Partition table written and synced");
         }
         
         // Seek to partition start
@@ -302,8 +329,10 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
         }
         
         // Write boot sector
+        info!("Writing boot sector (512 bytes)");
         file.write_all(&boot_sector_bytes)
             .map_err(|e| MosesError::Other(format!("Failed to write boot sector: {}", e)))?;
+        info!("Boot sector written successfully");
         
         // Create and write FAT tables
         let fat_size = sectors_per_fat as usize * 512;
@@ -337,8 +366,9 @@ impl FilesystemFormatter for Fat16CompliantFormatter {
             .map_err(|e| MosesError::Other(format!("Failed to write root directory: {}", e)))?;
         
         // Flush to ensure all data is written
-        file.flush()
-            .map_err(|e| MosesError::Other(format!("Failed to flush: {}", e)))?;
+        // Use sync_all for final sync, like FAT32 does
+        file.sync_all()
+            .map_err(|e| MosesError::Other(format!("Failed to sync: {}", e)))?;
         
         info!("FAT16 compliant format completed successfully");
         Ok(())

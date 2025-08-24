@@ -2,7 +2,6 @@
 
 use moses_core::{Device, MosesError, FormatOptions, FilesystemFormatter, SimulationReport, Platform};
 use async_trait::async_trait;
-use std::fs::OpenOptions;
 use std::io::{Write, Seek, SeekFrom};
 use log::info;
 
@@ -206,25 +205,12 @@ impl FilesystemFormatter for Fat16Formatter {
             }
         }
         
-        // Open device for writing
-        let device_path = if !device.mount_points.is_empty() {
-            let mount = &device.mount_points[0];
-            let mount_str = mount.to_string_lossy();
-            if mount_str.len() >= 2 && mount_str.chars().nth(1) == Some(':') {
-                format!("\\\\.\\{}", mount_str.trim_end_matches('\\'))
-            } else {
-                device.id.clone()
-            }
-        } else {
-            device.id.clone()
-        };
+        // Open device for writing using proper physical drive access
+        use crate::utils::open_device_write;
         
-        info!("Opening device at: {}", device_path);
+        info!("Opening device for writing: {}", device.name);
         
-        let mut file = OpenOptions::new()
-            .write(true)
-            .open(&device_path)
-            .map_err(|e| MosesError::Other(format!("Failed to open device: {}", e)))?;
+        let mut file = open_device_write(device)?;
         
         // If requested, write partition table first
         let partition_offset = if create_partition {

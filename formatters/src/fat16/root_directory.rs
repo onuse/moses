@@ -175,8 +175,11 @@ mod tests {
         assert_eq!(&label_entry.name, b"TEST DIS");
         assert_eq!(&label_entry.ext, b"K  ");
         assert_eq!(label_entry.attributes, attributes::VOLUME_ID);
-        assert_eq!(label_entry.first_cluster_lo, 0);
-        assert_eq!(label_entry.file_size, 0);
+        // Copy fields to avoid unaligned access
+        let first_cluster = label_entry.first_cluster_lo;
+        let file_size = label_entry.file_size;
+        assert_eq!(first_cluster, 0);
+        assert_eq!(file_size, 0);
     }
     
     #[test]

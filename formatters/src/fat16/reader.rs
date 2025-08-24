@@ -1,7 +1,7 @@
 // FAT16 filesystem reader
 
 use moses_core::{Device, MosesError};
-use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo};
+use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo, FileMetadata};
 use log::{info, debug};
 use std::collections::HashMap;
 
@@ -275,6 +275,7 @@ impl Fat16Reader {
                 is_directory: entry.attributes & ATTR_DIRECTORY != 0,
                 size: if entry.attributes & ATTR_DIRECTORY != 0 { 0 } else { entry.file_size as u64 },
                 cluster: Some(entry.first_cluster_low as u32),
+                metadata: FileMetadata::default(),
             });
             
             i += 32;

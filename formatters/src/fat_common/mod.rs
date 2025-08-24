@@ -1,4 +1,4 @@
-// Common FAT filesystem components shared between FAT16 and FAT32
+// Common FAT filesystem components shared between FAT16, FAT32, and exFAT
 // This module provides reusable building blocks to avoid code duplication
 
 pub mod constants;
@@ -6,11 +6,18 @@ pub mod boot_sector;
 pub mod cluster_calc;
 pub mod fat_table;
 pub mod validator;
+pub mod directory;
+pub mod cluster_io;
+pub mod timestamps;
+pub mod long_names;
 
 pub use constants::*;
 pub use boot_sector::*;
 pub use cluster_calc::*;
 pub use fat_table::*;
+pub use directory::*;
+pub use cluster_io::*;
+pub use timestamps::*;
 
 use std::time::SystemTime;
 

@@ -12,6 +12,7 @@ pub mod detection;
 pub mod comprehensive_validator;
 pub mod ultimate_validator;
 pub mod formatter_validator;
+pub mod validation;
 
 #[cfg(test)]
 mod tests;

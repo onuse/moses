@@ -1,22 +1,25 @@
-// NTFS module - formatter and reader
+// NTFS filesystem support module
+// Phase 1: Read-only implementation
+// Fully portable - no OS-specific dependencies
 
-pub mod formatter;
+pub mod structures;
+pub mod detector;
+pub mod boot_sector;
+pub mod mft;
+pub mod mft_writer;
+pub mod attributes;
+pub mod data_runs;
+pub mod index;
+pub mod compression;
+pub mod sparse;
+pub mod attribute_list;
+pub mod reparse;
 pub mod reader;
+pub mod writer;
+pub mod formatter;
 
-pub use formatter::NtfsFormatter;
+// Re-export main types
+pub use detector::NtfsDetector;
 pub use reader::NtfsReader;
-
-use crate::detection::FilesystemDetector;
-
-pub struct NtfsDetector;
-
-impl FilesystemDetector for NtfsDetector {
-    fn detect(boot_sector: &[u8], _ext_superblock: Option<&[u8]>) -> Option<String> {
-        // NTFS signature is at offset 3: "NTFS    "
-        if boot_sector.len() >= 8 && &boot_sector[3..8] == b"NTFS " {
-            Some("ntfs".to_string())
-        } else {
-            None
-        }
-    }
-}
+pub use formatter::NtfsFormatter;
+pub use structures::*;

@@ -6,8 +6,9 @@ use std::fs;
 use std::path::Path;
 use std::io::Write;
 use moses_core::{Device, FormatOptions, FilesystemFormatter};
-use moses_formatters::{NtfsFormatter, Fat16Formatter, Fat32Formatter, ExFatFormatter};
+use moses_formatters::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
 use moses_formatters::diagnostics::analyze_unknown_filesystem;
+use serde_json;
 use moses_formatters::disk_manager::{
     DiskManager, DiskCleaner, CleanOptions,
     PartitionStyleConverter, PartitionStyle,
@@ -18,6 +19,7 @@ use serde::{Deserialize, Serialize};
 use log::{Record, Level, Metadata, LevelFilter};
 use std::net::TcpStream;
 use std::io::{BufReader, BufRead};
+use std::sync::Mutex;
 
 
 #[cfg(target_os = "windows")]
@@ -30,8 +32,32 @@ use moses_formatters::Ext4LinuxFormatter;
 use std::sync::OnceLock;
 static LOG_FILE_PATH: OnceLock<std::path::PathBuf> = OnceLock::new();
 
+// Global socket stream for log streaming
+static SOCKET_STREAM: OnceLock<Mutex<Option<TcpStream>>> = OnceLock::new();
+
 // Simple file logging function
 fn log_to_file(msg: &str) {
+    // Try to send over socket first
+    if let Some(stream_mutex) = SOCKET_STREAM.get() {
+        if let Ok(mut guard) = stream_mutex.lock() {
+            if let Some(ref mut stream) = *guard {
+                // Don't send log messages about sending logs to avoid recursion
+                if !msg.contains("Log message") && !msg.contains("Failed to send log") {
+                    let log_response = WorkerResponse::Log {
+                        level: "INFO".to_string(),
+                        message: msg.to_string(),
+                    };
+                    if let Ok(json) = serde_json::to_string(&log_response) {
+                        let _ = stream.write_all(json.as_bytes());
+                        let _ = stream.write_all(b"\n");
+                        let _ = stream.flush();
+                    }
+                }
+            }
+        }
+    }
+    
+    // Also log to file
     if let Some(path) = LOG_FILE_PATH.get() {
         if let Ok(mut file) = std::fs::OpenOptions::new()
             .create(true)
@@ -56,11 +82,43 @@ impl log::Log for FileLogger {
 
     fn log(&self, record: &Record) {
         if self.enabled(record.metadata()) {
-            let msg = format!("[{}] {}: {}", 
-                record.level(), 
+            let level_str = record.level().to_string();
+            let msg = format!("{}: {}", 
                 record.target(), 
                 record.args());
-            log_to_file(&msg);
+            
+            // Send over socket if available
+            if let Some(stream_mutex) = SOCKET_STREAM.get() {
+                if let Ok(mut guard) = stream_mutex.lock() {
+                    if let Some(ref mut stream) = *guard {
+                        if !msg.contains("Log message") && !msg.contains("Failed to send log") {
+                            let log_response = WorkerResponse::Log {
+                                level: level_str.clone(),
+                                message: msg.clone(),
+                            };
+                            if let Ok(json) = serde_json::to_string(&log_response) {
+                                let _ = stream.write_all(json.as_bytes());
+                                let _ = stream.write_all(b"\n");
+                                let _ = stream.flush();
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Also log to file
+            let full_msg = format!("[{}] {}", level_str, msg);
+            if let Some(path) = LOG_FILE_PATH.get() {
+                if let Ok(mut file) = std::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(path) 
+                {
+                    let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+                    let _ = writeln!(file, "[{}] {}", timestamp, full_msg);
+                }
+            }
+            eprintln!("{}", full_msg);
         }
     }
 
@@ -299,6 +357,20 @@ fn run_worker() {
             let clean_first = &args[4] == "clean";
             handle_prepare(device_path, target_style, clean_first);
         }
+        "read_directory" => {
+            // Read directory command needs device file and path
+            if args.len() < 4 {
+                let error_msg = "Error: read_directory command requires <device-json-file> <path>";
+                log_to_file(error_msg);
+                #[cfg(target_os = "windows")]
+                show_error_message("Invalid Arguments", error_msg);
+                std::process::exit(1);
+            }
+            
+            let device_path = &args[2];
+            let directory_path = &args[3];
+            handle_read_directory(device_path, directory_path);
+        }
         _ => {
             let error_msg = format!("Unknown command: {}", command);
             log_to_file(&error_msg);
@@ -462,6 +534,35 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
     
     log_to_file(&format!("Executing format with filesystem type: {}", options.filesystem_type));
     
+    // Clean disk first if there's an existing filesystem and we're creating a partition table
+    let create_partition = options.additional_options
+        .get("create_partition_table")
+        .map(|v| v == "true")
+        .unwrap_or(false);
+    
+    if create_partition && device.filesystem.is_some() {
+        log_to_file(&format!("Existing filesystem detected ({}), cleaning disk first", 
+                            device.filesystem.as_ref().unwrap()));
+        
+        use moses_formatters::disk_manager::{DiskCleaner, CleanOptions, WipeMethod};
+        let clean_options = CleanOptions {
+            wipe_method: WipeMethod::Quick,
+            zero_entire_disk: false,
+        };
+        
+        match DiskCleaner::clean(&device, &clean_options) {
+            Ok(_) => {
+                log_to_file("Disk cleaned successfully");
+                // Small delay to let Windows process the clean
+                std::thread::sleep(std::time::Duration::from_millis(500));
+            }
+            Err(e) => {
+                log_to_file(&format!("Warning: Pre-format clean failed: {:?}, continuing anyway", e));
+                // Continue anyway - the format might still work
+            }
+        }
+    }
+    
     // Execute format based on filesystem type
     match options.filesystem_type.as_str() {
         "ext2" => {
@@ -591,25 +692,8 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
         },
         
         "ntfs" => {
-            log_to_file("Using NtfsFormatter");
-            let formatter = NtfsFormatter;
-            
-            log_to_file("Validating options...");
-            formatter.validate_options(&options)
-                .await
-                .map_err(|e| format!("Invalid options: {}", e))?;
-            
-            log_to_file("Checking if device can be formatted...");
-            if !formatter.can_format(&device) {
-                return Err("Device cannot be formatted".to_string());
-            }
-            
-            log_to_file("Starting format...");
-            formatter.format(&device, &options)
-                .await
-                .map_err(|e| format!("Format failed: {}", e))?;
-            
-            Ok(format!("Successfully formatted {} as NTFS", device.name))
+            log_to_file("NTFS formatting not yet implemented");
+            return Err("NTFS formatting is not yet implemented. Only NTFS reading is currently supported.".to_string());
         },
         
         "fat16" => {
@@ -890,6 +974,162 @@ fn handle_convert(device_path: &str, target_style: &str) {
     }
 }
 
+fn handle_read_directory(device_path: &str, directory_path: &str) {
+    use moses_formatters::device_reader::FilesystemReader;
+    
+    log_to_file(&format!("Reading directory: device={}, path={}", device_path, directory_path));
+    
+    // Read device JSON
+    let device_json = match fs::read_to_string(device_path) {
+        Ok(json) => json,
+        Err(e) => {
+            let error_msg = format!("Failed to read device file: {}", e);
+            log_to_file(&error_msg);
+            #[cfg(target_os = "windows")]
+            show_error_message("Read Error", &error_msg);
+            std::process::exit(1);
+        }
+    };
+    
+    let device: Device = match serde_json::from_str(&device_json) {
+        Ok(dev) => dev,
+        Err(e) => {
+            let error_msg = format!("Failed to parse device JSON: {}", e);
+            log_to_file(&error_msg);
+            #[cfg(target_os = "windows")]
+            show_error_message("Parse Error", &error_msg);
+            std::process::exit(1);
+        }
+    };
+    
+    // Detect filesystem type by opening the device
+    use moses_formatters::detection::detect_filesystem;
+    use moses_formatters::utils::open_device_with_fallback;
+    
+    let fs_type = match open_device_with_fallback(&device) {
+        Ok(mut file) => {
+            match detect_filesystem(&mut file) {
+                Ok(fs) => fs,
+                Err(e) => {
+                    let error_msg = format!("Failed to detect filesystem: {:?}", e);
+                    log_to_file(&error_msg);
+                    
+                    // Write error result to temp file
+                    let result_path = env::temp_dir().join(format!("moses-read-result-{}.json", std::process::id()));
+                    let error_result = serde_json::json!({
+                        "success": false,
+                        "error": error_msg
+                    });
+                    let _ = fs::write(&result_path, error_result.to_string());
+                    println!("{}", result_path.display());
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(e) => {
+            let error_msg = format!("Failed to open device: {:?}", e);
+            log_to_file(&error_msg);
+            
+            // Write error result to temp file
+            let result_path = env::temp_dir().join(format!("moses-read-result-{}.json", std::process::id()));
+            let error_result = serde_json::json!({
+                "success": false,
+                "error": error_msg
+            });
+            let _ = fs::write(&result_path, error_result.to_string());
+            println!("{}", result_path.display());
+            std::process::exit(1);
+        }
+    };
+    
+    log_to_file(&format!("Detected filesystem: {}", fs_type));
+    
+    // Create appropriate reader based on filesystem type
+    let result = match fs_type.as_str() {
+        "ntfs" => {
+            use moses_formatters::ntfs::NtfsReader;
+            match NtfsReader::new(device.clone()) {
+                Ok(mut reader) => {
+                    reader.list_directory(directory_path)
+                        .map_err(|e| format!("Failed to read directory: {:?}", e))
+                }
+                Err(e) => Err(format!("Failed to open NTFS: {:?}", e))
+            }
+        }
+        "fat32" | "vfat" => {
+            use moses_formatters::fat32::Fat32Reader;
+            match Fat32Reader::new(device.clone()) {
+                Ok(mut reader) => {
+                    reader.list_directory(directory_path)
+                        .map_err(|e| format!("Failed to read directory: {:?}", e))
+                }
+                Err(e) => Err(format!("Failed to open FAT32: {:?}", e))
+            }
+        }
+        "fat16" | "fat12" => {
+            use moses_formatters::fat16::Fat16Reader;
+            match Fat16Reader::new(device.clone()) {
+                Ok(mut reader) => {
+                    reader.list_directory(directory_path)
+                        .map_err(|e| format!("Failed to read directory: {:?}", e))
+                }
+                Err(e) => Err(format!("Failed to open FAT16: {:?}", e))
+            }
+        }
+        "exfat" => {
+            use moses_formatters::exfat::ExFatReader;
+            match ExFatReader::new(device.clone()) {
+                Ok(mut reader) => {
+                    reader.list_directory(directory_path)
+                        .map_err(|e| format!("Failed to read directory: {:?}", e))
+                }
+                Err(e) => Err(format!("Failed to open exFAT: {:?}", e))
+            }
+        }
+        _ => {
+            Err(format!("Unsupported filesystem type: {}", fs_type))
+        }
+    };
+    
+    // Write result to temp file for parent process to read
+    let result_path = env::temp_dir().join(format!("moses-read-result-{}.json", std::process::id()));
+    
+    match result {
+        Ok(entries) => {
+            let success_result = serde_json::json!({
+                "success": true,
+                "entries": entries
+            });
+            
+            match fs::write(&result_path, success_result.to_string()) {
+                Ok(_) => {
+                    log_to_file(&format!("Successfully read {} entries", entries.len()));
+                    println!("{}", result_path.display());
+                    std::process::exit(0);
+                }
+                Err(e) => {
+                    let error_msg = format!("Failed to write result file: {}", e);
+                    log_to_file(&error_msg);
+                    #[cfg(target_os = "windows")]
+                    show_error_message("Write Error", &error_msg);
+                    std::process::exit(1);
+                }
+            }
+        }
+        Err(error) => {
+            let error_result = serde_json::json!({
+                "success": false,
+                "error": error
+            });
+            
+            let _ = fs::write(&result_path, error_result.to_string());
+            log_to_file(&format!("Read failed: {}", error));
+            println!("{}", result_path.display());
+            std::process::exit(1);
+        }
+    }
+}
+
 // Socket mode structures (must match worker_server.rs)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "command", content = "params")]
@@ -914,6 +1154,10 @@ enum WorkerCommand {
         target_style: String,
         clean_first: bool,
     },
+    ReadDirectory {
+        device: Device,
+        path: String,
+    },
     Ping,
     Shutdown,
 }
@@ -924,6 +1168,8 @@ enum WorkerResponse {
     Success(String),
     Error(String),
     Progress { percent: u8, message: String },
+    Log { level: String, message: String },
+    DirectoryListing(String), // JSON serialized directory listing
     Pong,
 }
 
@@ -973,6 +1219,11 @@ fn handle_socket_mode(port: u16) {
             std::process::exit(1);
         }
     };
+    
+    // Store a clone of the stream for log streaming
+    if let Ok(log_stream) = stream.try_clone() {
+        let _ = SOCKET_STREAM.set(Mutex::new(Some(log_stream)));
+    }
     
     log_to_file("Connected to Moses with admin rights, waiting for commands...");
     
@@ -1081,6 +1332,50 @@ fn handle_socket_mode(port: u16) {
                 match DiskManager::prepare_disk(&device, style, clean_first) {
                     Ok(report) => WorkerResponse::Success(format!("Disk prepared: {:?}", report)),
                     Err(e) => WorkerResponse::Error(format!("Preparation failed: {:?}", e)),
+                }
+            }
+            
+            WorkerCommand::ReadDirectory { device, path } => {
+                log_to_file(&format!("Reading directory {} on {}", path, device.name));
+                
+                // Use the existing handle_read_directory function
+                // First write device to temp file
+                let device_json = match serde_json::to_string(&device) {
+                    Ok(j) => j,
+                    Err(e) => {
+                        send_response(&mut stream, WorkerResponse::Error(format!("Failed to serialize device: {}", e)));
+                        continue;
+                    }
+                };
+                
+                let temp_dir = std::env::temp_dir();
+                let device_file = temp_dir.join(format!("moses-device-socket-{}.json", std::process::id()));
+                
+                if let Err(e) = std::fs::write(&device_file, device_json) {
+                    send_response(&mut stream, WorkerResponse::Error(format!("Failed to write device file: {}", e)));
+                    continue;
+                }
+                
+                // Call the existing handler
+                handle_read_directory(device_file.to_str().unwrap_or(""), &path);
+                
+                // Read the result file
+                let result_file = temp_dir.join(format!("moses-read-result-{}.json", std::process::id()));
+                
+                match std::fs::read_to_string(&result_file) {
+                    Ok(content) => {
+                        // Clean up temp files
+                        let _ = std::fs::remove_file(&device_file);
+                        let _ = std::fs::remove_file(&result_file);
+                        
+                        WorkerResponse::DirectoryListing(content)
+                    }
+                    Err(e) => {
+                        // Clean up temp files
+                        let _ = std::fs::remove_file(&device_file);
+                        
+                        WorkerResponse::Error(format!("Failed to read directory: {}", e))
+                    }
                 }
             }
         };

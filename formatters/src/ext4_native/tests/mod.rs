@@ -3,6 +3,7 @@
 mod phase1_tests;
 mod phase2_tests;
 mod phase3_tests;
+mod test_backup_superblocks;
 // mod phase1_standalone; // Uncomment to build standalone test
 
 #[cfg(test)]

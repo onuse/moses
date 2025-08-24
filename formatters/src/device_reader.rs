@@ -213,12 +213,24 @@ pub trait FilesystemReader {
     fn get_info(&self) -> FilesystemInfo;
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FileEntry {
     pub name: String,
     pub is_directory: bool,
     pub size: u64,
     pub cluster: Option<u32>, // For FAT-based filesystems
+    pub metadata: FileMetadata, // Extended metadata
+}
+
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct FileMetadata {
+    pub compressed: bool,
+    pub sparse: bool,
+    pub reparse_point: Option<String>,
+    pub allocated_size: Option<u64>,
+    pub created: Option<u64>,      // Timestamps as Unix epoch
+    pub modified: Option<u64>,
+    pub accessed: Option<u64>,
 }
 
 #[derive(Debug, Clone)]

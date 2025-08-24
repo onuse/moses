@@ -46,7 +46,7 @@ pub async fn format_device_with_progress(
         label: options.label.clone(),
         reserved_percent: 5,
         enable_checksums: true,
-        enable_64bit: device.size > 16 * 1024 * 1024 * 1024, // >16GB
+        enable_64bit: true, // Always enable 64-bit like modern mkfs.ext4
         enable_journal: false,
     };
     
@@ -382,20 +382,21 @@ pub async fn format_device_with_progress(
     let mut gdt_buffer = vec![0u8; layout.gdt_blocks as usize * 4096];
     
     // Write group 0 descriptor
+    let desc_size = if sb.s_desc_size > 0 { sb.s_desc_size as usize } else { 64 };
     let gd_bytes = unsafe {
         std::slice::from_raw_parts(
             &gd as *const _ as *const u8,
-            64
+            desc_size
         )
     };
-    gdt_buffer[..64].copy_from_slice(gd_bytes);
+    gdt_buffer[..desc_size].copy_from_slice(gd_bytes);
     
     // Initialize empty descriptors for remaining groups
     // IMPORTANT: Must set valid block numbers even for unused groups!
     // Linux always validates these, regardless of UNINIT flags
     for group_idx in 1..layout.num_groups {
-        let offset = group_idx as usize * 64;
-        if offset + 64 <= gdt_buffer.len() {
+        let offset = group_idx as usize * desc_size;
+        if offset + desc_size <= gdt_buffer.len() {
             // Calculate where this group's metadata would be
             let group_first_block = group_idx as u64 * layout.blocks_per_group as u64;
             
@@ -463,10 +464,10 @@ pub async fn format_device_with_progress(
             let empty_gd_bytes = unsafe {
                 std::slice::from_raw_parts(
                     &empty_gd as *const _ as *const u8,
-                    64
+                    desc_size
                 )
             };
-            gdt_buffer[offset..offset + 64].copy_from_slice(empty_gd_bytes);
+            gdt_buffer[offset..offset + desc_size].copy_from_slice(empty_gd_bytes);
         }
     }
     
@@ -492,6 +493,67 @@ pub async fn format_device_with_progress(
     
     // Skip reserved GDT blocks
     current_block += layout.reserved_gdt_blocks as u64;
+    
+    // Write backup superblocks and GDT to groups that need them
+    progress.start_step(7, "Writing backup superblocks");
+    info!("Writing backup superblocks to groups with sparse_super");
+    
+    for backup_group in 1..layout.num_groups {
+        if !layout.has_superblock(backup_group) {
+            continue;
+        }
+        
+        info!("Writing backup superblock to group {}", backup_group);
+        let backup_block = backup_group as u64 * layout.blocks_per_group as u64;
+        
+        // Update block group number in superblock for this backup
+        let mut backup_sb = sb.clone();
+        backup_sb.s_block_group_nr = backup_group as u16;
+        backup_sb.update_checksum();
+        
+        // Write backup superblock
+        let backup_sb_bytes = unsafe {
+            std::slice::from_raw_parts(
+                &backup_sb as *const _ as *const u8,
+                1024
+            )
+        };
+        
+        let mut backup_sb_buffer = AlignedBuffer::<1024>::new();
+        backup_sb_buffer[..].copy_from_slice(backup_sb_bytes);
+        
+        #[cfg(target_os = "windows")]
+        device_io.write_aligned(backup_block * 4096, &backup_sb_buffer[..])
+            .map_err(|e| MosesError::Other(format!("Failed to write backup superblock at group {}: {:?}", backup_group, e)))?;
+        
+        #[cfg(not(target_os = "windows"))]
+        {
+            file.seek(SeekFrom::Start(backup_block * 4096))
+                .map_err(|e| MosesError::Other(format!("Failed to seek for backup sb: {}", e)))?;
+            file.write_all(&backup_sb_buffer[..])
+                .map_err(|e| MosesError::Other(format!("Failed to write backup superblock at group {}: {}", backup_group, e)))?;
+        }
+        
+        // Also write backup GDT after the backup superblock
+        let backup_gdt_block = backup_block + 1;
+        for gdt_block_idx in 0..layout.gdt_blocks {
+            let block_offset = (backup_gdt_block + gdt_block_idx as u64) * 4096;
+            let data_offset = gdt_block_idx as usize * 4096;
+            let data_end = ((gdt_block_idx + 1) as usize * 4096).min(gdt_buffer.len());
+            
+            #[cfg(target_os = "windows")]
+            device_io.write_aligned(block_offset, &gdt_buffer[data_offset..data_end])
+                .map_err(|e| MosesError::Other(format!("Failed to write backup GDT at group {}: {:?}", backup_group, e)))?;
+            
+            #[cfg(not(target_os = "windows"))]
+            {
+                file.seek(SeekFrom::Start(block_offset))
+                    .map_err(|e| MosesError::Other(format!("Failed to seek for backup GDT: {}", e)))?;
+                file.write_all(&gdt_buffer[data_offset..data_end])
+                    .map_err(|e| MosesError::Other(format!("Failed to write backup GDT at group {}: {}", backup_group, e)))?;
+            }
+        }
+    }
     
     progress.start_step(8, "Writing bitmaps and inode table");
     // Block bitmap

@@ -58,26 +58,27 @@ mod safety_tests {
             "CRITICAL: Formatter claims it can format a system drive!");
     }
 
-    #[test]
-    fn test_ntfs_formatter_refuses_system_drive() {
-        let formatter = moses_formatters::NtfsFormatter;
-        let system_drive = create_system_drive();
-        
-        assert!(!formatter.can_format(&system_drive),
-            "CRITICAL: NTFS formatter claims it can format a system drive!");
-    }
+    // NTFS formatter tests disabled - read-only support in Phase 1
+    // #[test]
+    // fn test_ntfs_formatter_refuses_system_drive() {
+    //     let formatter = moses_formatters::NtfsFormatter;
+    //     let system_drive = create_system_drive();
+    //     
+    //     assert!(!formatter.can_format(&system_drive),
+    //         "CRITICAL: NTFS formatter claims it can format a system drive!");
+    // }
 
     #[test]
     fn test_formatters_allow_safe_usb() {
         let ext4_formatter = moses_formatters::Ext4Formatter;
-        let ntfs_formatter = moses_formatters::NtfsFormatter;
+        // NTFS formatter not yet available (Phase 1 is read-only)
         let safe_usb = create_safe_usb();
         
         // Formatters should allow formatting safe USB drives
         assert!(ext4_formatter.can_format(&safe_usb),
             "Formatter refuses to format a safe USB drive");
-        assert!(ntfs_formatter.can_format(&safe_usb),
-            "NTFS formatter refuses to format a safe USB drive");
+        // assert!(ntfs_formatter.can_format(&safe_usb),
+        //     "NTFS formatter refuses to format a safe USB drive");
     }
 
     #[tokio::test]

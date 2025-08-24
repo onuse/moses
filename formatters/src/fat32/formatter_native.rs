@@ -10,7 +10,7 @@ use log::warn;
 use crate::fat_common::{
     generate_volume_serial, format_volume_label,
     FatBootSectorParams, build_fat32_boot_sector,
-    calculate_fat32_params, write_fat32_tables,
+    calculate_fat32_params,
     FAT32_ROOT_CLUSTER, FAT32_FS_INFO_SECTOR, FAT32_BACKUP_BOOT_SECTOR,
     MEDIA_FIXED
 };
@@ -109,14 +109,35 @@ impl Fat32NativeFormatter {
         file.write_all(&fsinfo)?;
         info!("Wrote backup FSInfo sector");
         
-        // Write FAT tables
+        // Write FAT tables with proper sector alignment for Windows physical drives
         let fat_offset = write_offset + (params.reserved_sectors as u64 * 512);
-        write_fat32_tables(
-            file,
-            fat_offset,
-            fat_params.sectors_per_fat,
-            params.num_fats,
-        )?;
+        
+        // Write each FAT table
+        for fat_num in 0..params.num_fats {
+            let this_fat_offset = fat_offset + (fat_num as u64 * fat_params.sectors_per_fat as u64 * 512);
+            
+            // Seek to FAT start
+            file.seek(SeekFrom::Start(this_fat_offset))?;
+            
+            // Initialize FAT with zeros in sector-sized chunks
+            let fat_size = fat_params.sectors_per_fat as usize * 512;
+            let zeros = vec![0u8; fat_size.min(1024 * 1024)];  // Write in 1MB chunks
+            let mut remaining = fat_size;
+            while remaining > 0 {
+                let chunk_size = remaining.min(zeros.len());
+                file.write_all(&zeros[..chunk_size])?;
+                remaining -= chunk_size;
+            }
+            
+            // Write reserved entries in first sector (sector-aligned)
+            file.seek(SeekFrom::Start(this_fat_offset))?;
+            let mut first_sector = vec![0u8; 512];
+            first_sector[0..4].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0x0F]);  // Media descriptor
+            first_sector[4..8].copy_from_slice(&[0xFF, 0xFF, 0xFF, 0x0F]);  // End of chain
+            first_sector[8..12].copy_from_slice(&[0xF8, 0xFF, 0xFF, 0x0F]);  // Root directory cluster
+            file.write_all(&first_sector)?;
+        }
+        
         info!("Wrote {} FAT32 tables", params.num_fats);
         
         // Initialize root directory cluster (cluster 2)

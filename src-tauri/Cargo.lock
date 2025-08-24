@@ -2056,6 +2056,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "byteorder",
+ "chrono",
  "crc32c",
  "crc32fast",
  "hex",

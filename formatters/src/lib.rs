@@ -30,12 +30,12 @@ pub use ext4_native::Ext4NativeFormatter;
 pub mod ext_family;
 pub use ext_family::{Ext2Formatter, Ext3Formatter};
 
-#[cfg(target_os = "windows")]
-pub mod ntfs_windows;
+// NTFS module is fully portable - no OS-specific version needed
 
 // Re-export formatters and readers
 pub use ext4::Ext4Formatter;
-pub use ntfs::{NtfsFormatter, NtfsReader};
+// NTFS implementation - read and format support
+pub use ntfs::{NtfsDetector, NtfsReader, NtfsFormatter};
 pub use fat16::{Fat16Formatter, Fat16Reader};
 pub use fat32::{Fat32Formatter, Fat32Reader};
 pub use exfat::{ExFatFormatter, ExFatReader};
@@ -47,8 +47,9 @@ pub use ext4_linux::Ext4LinuxFormatter;
 // #[cfg(target_os = "windows")]
 // pub use ext4_windows::Ext4WindowsFormatter;
 
-#[cfg(target_os = "windows")]
-pub use ntfs_windows::NtfsWindowsFormatter;
+// Deprecated - using native NTFS implementation instead
+// #[cfg(target_os = "windows")]
+// pub use ntfs_windows::NtfsWindowsFormatter;
 
 // Re-export registration functions
 pub use registration::{register_builtin_formatters, list_available_formatters, get_formatter_info};

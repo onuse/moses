@@ -1,7 +1,7 @@
 use moses_core::{Device, DeviceManager, FilesystemFormatter, FormatOptions, SimulationReport};
 
 use moses_platform::PlatformDeviceManager;
-use moses_formatters::{NtfsFormatter, Fat16Formatter, Fat32Formatter, ExFatFormatter};
+use moses_formatters::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
 
 #[cfg(target_os = "windows")]
 use moses_platform::windows::elevation::is_elevated;
@@ -55,119 +55,32 @@ async fn execute_format_elevated(
 ) -> Result<String, String> {
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::env;
+        use crate::worker_server::{get_worker_server, WorkerCommand, WorkerResponse};
         
-        // Get the path to the elevated worker executable
-        let worker_exe = env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?
-            .parent()
-            .ok_or_else(|| "Failed to get executable directory".to_string())?
-            .join("moses-worker.exe");
-        
-        // Serialize device and options to JSON
-        let device_json = serde_json::to_string(&device)
-            .map_err(|e| format!("Failed to serialize device: {}", e))?;
-        let options_json = serde_json::to_string(&options)
-            .map_err(|e| format!("Failed to serialize options: {}", e))?;
-        
-        // Log what we're passing to the worker
-        log::info!("Passing to elevated worker - Device: name={}, id={}, size={}", 
+        log::info!("Executing format with elevation - Device: name={}, id={}, size={}", 
                    device.name, device.id, device.size);
         log::info!("Options: filesystem={}, cluster_size={:?}", 
                    options.filesystem_type, options.cluster_size);
         
-        // If we're already elevated, run the worker directly
-        if is_elevated() {
-            let output = Command::new(&worker_exe)
-                .arg("format")
-                .arg(&device_json)
-                .arg(&options_json)
-                .output()
-                .map_err(|e| format!("Failed to run worker: {}", e))?;
+        // Use the persistent socket-based worker
+        let server = get_worker_server().await?;
+        let mut server_guard = server.lock().await;
+        
+        if let Some(worker) = server_guard.as_mut() {
+            // Send format command through the socket
+            let command = WorkerCommand::Format { 
+                device: device.clone(), 
+                options: options.clone() 
+            };
             
-            if output.status.success() {
-                let stdout = String::from_utf8_lossy(&output.stdout);
-                Ok(stdout.trim().to_string())
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(stderr.trim().to_string())
+            match worker.execute_command(command).await {
+                Ok(WorkerResponse::Success(result)) => Ok(result),
+                Ok(WorkerResponse::Error(e)) => Err(format!("Format failed: {}", e)),
+                Ok(_) => Err("Unexpected response from worker".to_string()),
+                Err(e) => Err(format!("Worker communication failed: {}", e))
             }
         } else {
-            // Request elevation for the worker process
-            // Write JSON to temp files to avoid escaping issues
-            use std::fs;
-            use std::os::windows::process::CommandExt;
-            
-            let temp_dir = env::temp_dir();
-            let device_file = temp_dir.join(format!("moses_device_{}.json", std::process::id()));
-            let options_file = temp_dir.join(format!("moses_options_{}.json", std::process::id()));
-            
-            // Write JSON to temp files
-            fs::write(&device_file, &device_json)
-                .map_err(|e| format!("Failed to write device JSON to temp file: {}", e))?;
-            fs::write(&options_file, &options_json)
-                .map_err(|e| format!("Failed to write options JSON to temp file: {}", e))?;
-            
-            let ps_script = format!(
-                r#"
-                $worker = '{}'
-                $deviceFile = '{}'
-                $optionsFile = '{}'
-                
-                # Start the worker with elevation
-                $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-                $startInfo.FileName = $worker
-                $startInfo.Arguments = "format `"$deviceFile`" `"$optionsFile`""
-                $startInfo.Verb = 'runas'
-                $startInfo.UseShellExecute = $true
-                $startInfo.RedirectStandardOutput = $false
-                $startInfo.RedirectStandardError = $false
-                
-                try {{
-                    $process = [System.Diagnostics.Process]::Start($startInfo)
-                    $process.WaitForExit()
-                    
-                    # Clean up temp files
-                    Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
-                    Remove-Item -Path $optionsFile -ErrorAction SilentlyContinue
-                    
-                    if ($process.ExitCode -eq 0) {{
-                        Write-Output "Format completed successfully"
-                        exit 0
-                    }} else {{
-                        Write-Error "Format failed with exit code: $($process.ExitCode)"
-                        exit 1
-                    }}
-                }} catch {{
-                    Write-Error "Failed to start elevated worker: $_"
-                    # Clean up temp files on error
-                    Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
-                    Remove-Item -Path $optionsFile -ErrorAction SilentlyContinue
-                    exit 1
-                }}
-                "#,
-                worker_exe.display(),
-                device_file.display(),
-                options_file.display()
-            );
-            
-            let output = Command::new("powershell")
-                .args(&[
-                    "-NoProfile",
-                    "-ExecutionPolicy", "Bypass",
-                    "-Command", &ps_script
-                ])
-                .creation_flags(0x08000000) // CREATE_NO_WINDOW
-                .output()
-                .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
-            
-            if output.status.success() {
-                Ok("Format completed successfully".to_string())
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                Err(format!("Format failed: {}", stderr.trim()))
-            }
+            Err("Worker server not initialized".to_string())
         }
     }
     
@@ -250,10 +163,8 @@ async fn simulate_format(
         },
         
         "ntfs" => {
-            let formatter = NtfsFormatter;
-            formatter.dry_run(&device, &options)
-                .await
-                .map_err(|e| format!("Simulation failed: {}", e))
+            // NTFS formatting not yet implemented
+            return Err("NTFS formatting is not yet implemented. Only NTFS reading is currently supported.".to_string());
         },
         
         "fat16" => {
@@ -420,24 +331,8 @@ async fn execute_format(
         },
         
         "ntfs" => {
-            let formatter = NtfsFormatter;
-            
-            // Validate options
-            formatter.validate_options(&options)
-                .await
-                .map_err(|e| format!("Invalid options: {}", e))?;
-            
-            // Check if device can be formatted
-            if !formatter.can_format(&device) {
-                return Err("Device cannot be formatted (system device or critical mount points)".to_string());
-            }
-            
-            // Execute the format
-            formatter.format(&device, &options)
-                .await
-                .map_err(|e| format!("Format failed: {}", e))?;
-            
-            Ok(format!("Successfully formatted {} as NTFS", device.name))
+            // NTFS formatting not yet implemented
+            return Err("NTFS formatting is not yet implemented. Only NTFS reading is currently supported.".to_string());
         },
         
         "fat16" => {
@@ -645,20 +540,24 @@ pub fn run() {
             execute_format_elevated,
             check_formatter_requirements,
             commands::filesystem::read_directory,
+            commands::filesystem::read_directory_elevated,
             commands::filesystem::read_file,
             commands::filesystem::copy_files,
+            // Old disk management commands (to be deprecated)
             commands::disk_management::clean_disk,
             commands::disk_management::detect_conflicts,
             commands::disk_management::convert_partition_style,
             commands::disk_management::prepare_disk,
             commands::disk_management::quick_clean,
             commands::disk_management::needs_cleaning,
-            // Socket-based commands
+            // Socket-based commands (preferred)
             commands::disk_management_socket::clean_disk_socket,
             commands::disk_management_socket::format_disk_socket,
             commands::disk_management_socket::detect_conflicts_socket,
             commands::disk_management_socket::analyze_filesystem_socket,
             commands::disk_management_socket::detect_filesystem_socket,
+            commands::disk_management_socket::convert_partition_style_socket,
+            commands::disk_management_socket::prepare_disk_socket,
             commands::filesystem::detect_filesystem_elevated,
             commands::filesystem::request_elevated_filesystem_detection,
             commands::filesystem::get_filesystem_type,

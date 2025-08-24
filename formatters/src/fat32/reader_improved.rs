@@ -2,7 +2,7 @@
 // Handles Windows sector alignment automatically
 
 use moses_core::{Device, MosesError};
-use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo};
+use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo, FileMetadata};
 use log::{info, debug};
 use std::collections::HashMap;
 
@@ -356,6 +356,7 @@ impl Fat32ReaderImproved {
                     is_directory: dir_entry.attributes & ATTR_DIRECTORY != 0,
                     size: if dir_entry.attributes & ATTR_DIRECTORY != 0 { 0 } else { dir_entry.file_size as u64 },
                     cluster: Some(cluster),
+                    metadata: FileMetadata::default(),
                 });
                 
                 long_name_parts.clear();

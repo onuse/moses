@@ -1,6 +1,6 @@
 // Socket-based communication with elevated worker process
 use std::sync::Arc;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, mpsc};
 use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use serde::{Deserialize, Serialize};
@@ -31,6 +31,10 @@ pub enum WorkerCommand {
         target_style: String,
         clean_first: bool,
     },
+    ReadDirectory {
+        device: Device,
+        path: String,
+    },
     Ping, // Keepalive
     Shutdown, // Graceful shutdown
 }
@@ -41,6 +45,8 @@ pub enum WorkerResponse {
     Success(String),
     Error(String),
     Progress { percent: u8, message: String },
+    Log { level: String, message: String },
+    DirectoryListing(String), // JSON serialized directory listing
     Pong,
 }
 
@@ -48,6 +54,7 @@ pub struct WorkerServer {
     listener: Option<TcpListener>,
     connection: Arc<Mutex<Option<TcpStream>>>,
     port: u16,
+    log_sender: Arc<Mutex<Option<mpsc::UnboundedSender<(String, String)>>>>,
 }
 
 impl WorkerServer {
@@ -67,6 +74,7 @@ impl WorkerServer {
             listener: Some(listener),
             connection: Arc::new(Mutex::new(None)),
             port,
+            log_sender: Arc::new(Mutex::new(None)),
         })
     }
     
@@ -81,12 +89,24 @@ impl WorkerServer {
         
         // Check if we already have a connection
         if let Some(ref mut stream) = *conn {
+            // Try to set TCP keepalive to detect broken connections
+            let _ = stream.set_nodelay(true);
+            
+            log::info!("Checking existing worker connection...");
             // Send a ping to check if connection is alive
-            if self.ping_worker(stream).await.is_ok() {
-                return Ok(());
+            match self.ping_worker(stream).await {
+                Ok(()) => {
+                    log::info!("Worker connection is alive");
+                    return Ok(());
+                },
+                Err(e) => {
+                    log::warn!("Worker ping failed: {}, will reconnect...", e);
+                    // Connection is dead, remove it
+                    *conn = None;
+                }
             }
-            // Connection is dead, remove it
-            *conn = None;
+        } else {
+            log::info!("No existing worker connection, will spawn new worker");
         }
         
         // Spawn the elevated worker
@@ -113,13 +133,38 @@ impl WorkerServer {
     
     /// Send a command to the worker and get response
     pub async fn execute_command(&self, command: WorkerCommand) -> Result<WorkerResponse, String> {
+        // Try up to 2 times in case of connection issues
+        for attempt in 0..2 {
+            match self.execute_command_internal(&command).await {
+                Ok(response) => return Ok(response),
+                Err(e) if e.contains("10054") || e.contains("broken pipe") || e.contains("connection") => {
+                    log::warn!("Connection error on attempt {}: {}", attempt + 1, e);
+                    // Reset connection and retry
+                    {
+                        let mut conn = self.connection.lock().await;
+                        *conn = None;
+                    }
+                    if attempt == 0 {
+                        log::info!("Reconnecting to worker...");
+                        continue;
+                    }
+                    return Err(format!("Worker connection failed after retry: {}", e));
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err("Failed to execute command after retries".to_string())
+    }
+    
+    /// Internal implementation of execute_command
+    async fn execute_command_internal(&self, command: &WorkerCommand) -> Result<WorkerResponse, String> {
         self.ensure_connected().await?;
         
         let mut conn = self.connection.lock().await;
         let stream = conn.as_mut().ok_or("No worker connection")?;
         
         // Send command
-        let cmd_json = serde_json::to_string(&command)
+        let cmd_json = serde_json::to_string(command)
             .map_err(|e| format!("Failed to serialize command: {}", e))?;
         
         stream.write_all(cmd_json.as_bytes()).await
@@ -129,14 +174,40 @@ impl WorkerServer {
         stream.flush().await
             .map_err(|e| format!("Failed to flush: {}", e))?;
         
-        // Read response
+        // Read response, filtering out log messages
         let mut reader = BufReader::new(stream);
-        let mut response_line = String::new();
-        reader.read_line(&mut response_line).await
-            .map_err(|e| format!("Failed to read response: {}", e))?;
-        
-        serde_json::from_str(&response_line)
-            .map_err(|e| format!("Failed to parse response: {}", e))
+        loop {
+            let mut response_line = String::new();
+            reader.read_line(&mut response_line).await
+                .map_err(|e| format!("Failed to read response: {}", e))?;
+            
+            let response: WorkerResponse = serde_json::from_str(&response_line)
+                .map_err(|e| format!("Failed to parse response: {}", e))?;
+            
+            match response {
+                WorkerResponse::Log { level, message } => {
+                    // Forward log to system logger
+                    log::log!(
+                        match level.as_str() {
+                            "ERROR" => log::Level::Error,
+                            "WARN" => log::Level::Warn,
+                            "INFO" => log::Level::Info,
+                            "DEBUG" => log::Level::Debug,
+                            _ => log::Level::Trace,
+                        },
+                        "[Worker] {}",
+                        message
+                    );
+                    
+                    // Store log for UI if we have a sender
+                    if let Some(ref sender) = *self.log_sender.lock().await {
+                        let _ = sender.send((level, message));
+                    }
+                    // Continue reading for the actual response
+                }
+                _ => return Ok(response), // This is the actual command response
+            }
+        }
     }
     
     /// Ping the worker to check if it's alive
@@ -174,6 +245,7 @@ impl WorkerServer {
     
     /// Spawn the elevated worker process
     async fn spawn_elevated_worker(&self) -> Result<(), String> {
+        log::info!("Spawning elevated worker process...");
         #[cfg(target_os = "windows")]
         {
             use std::process::Command;
@@ -287,6 +359,19 @@ impl WorkerServer {
         
         *conn = None;
         Ok(())
+    }
+    
+    /// Set up log streaming channel
+    pub fn setup_log_channel(&self) -> mpsc::UnboundedReceiver<(String, String)> {
+        let (tx, rx) = mpsc::unbounded_channel();
+        let sender_arc = self.log_sender.clone();
+        
+        tokio::spawn(async move {
+            let mut guard = sender_arc.lock().await;
+            *guard = Some(tx);
+        });
+        
+        rx
     }
 }
 

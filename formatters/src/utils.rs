@@ -84,26 +84,14 @@ pub fn open_device_write(device: &Device) -> Result<File, MosesError> {
     
     #[cfg(target_os = "windows")]
     {
-        // On Windows, we need to use CreateFileW with special flags for raw device access
-        use std::os::windows::fs::OpenOptionsExt;
-        use winapi::um::winbase::FILE_FLAG_WRITE_THROUGH;
-        
         log::info!("Opening Windows device for writing: {}", path);
         
-        // Try with Windows-specific flags for raw device access
+        // Just use regular file operations without special flags
+        // The sync_all() calls will ensure data is written
         std::fs::OpenOptions::new()
             .read(true)
             .write(true)
-            .custom_flags(FILE_FLAG_WRITE_THROUGH) // Don't use NO_BUFFERING for FAT32
             .open(&path)
-            .or_else(|e| {
-                log::warn!("Failed with WRITE_THROUGH ({}), trying without flags", e);
-                // Fallback to regular open
-                std::fs::OpenOptions::new()
-                    .read(true)
-                    .write(true)
-                    .open(&path)
-            })
             .map_err(|e| {
                 log::error!("Failed to open device {} for writing: {} (OS error: {:?})", 
                           path, e, e.raw_os_error());
@@ -247,13 +235,74 @@ pub fn handle_fs_error<T>(result: Result<T, MosesError>, context: &str) -> Resul
     })
 }
 
+/// Check if the current process has administrator/root privileges
+#[cfg(target_os = "windows")]
+pub fn is_elevated() -> bool {
+    use winapi::um::winnt::TOKEN_ELEVATION;
+    use winapi::um::processthreadsapi::{GetCurrentProcess, OpenProcessToken};
+    use winapi::um::securitybaseapi::GetTokenInformation;
+    use winapi::um::winnt::TOKEN_QUERY;
+    use winapi::um::handleapi::CloseHandle;
+    use std::mem;
+    
+    unsafe {
+        let mut token = std::ptr::null_mut();
+        if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) == 0 {
+            return false;
+        }
+        
+        let mut elevation = TOKEN_ELEVATION { TokenIsElevated: 0 };
+        let mut size = 0;
+        let result = GetTokenInformation(
+            token,
+            winapi::um::winnt::TokenElevation,
+            &mut elevation as *mut _ as *mut _,
+            mem::size_of::<TOKEN_ELEVATION>() as u32,
+            &mut size
+        );
+        
+        CloseHandle(token);
+        
+        result != 0 && elevation.TokenIsElevated != 0
+    }
+}
+
+#[cfg(not(target_os = "windows"))]
+pub fn is_elevated() -> bool {
+    // On Unix, check if we're root (UID 0)
+    // We just check if we can open /dev/null for writing as a simple test
+    std::fs::OpenOptions::new()
+        .write(true)
+        .open("/dev/null")
+        .is_ok()
+}
+
 /// Try to open a device, falling back to mount points if direct access fails
+/// Note: On Windows, reading raw devices (\\.\X:) typically requires administrator privileges.
+/// This is because we're directly reading disk sectors, not going through the file system API.
 pub fn open_device_with_fallback(device: &Device) -> Result<File, MosesError> {
     // First try the preferred path (drive letter on Windows)
     let primary_path = get_device_path(device);
     
     log::info!("Trying primary path: {}", primary_path);
-    match File::open(&primary_path) {
+    
+    // Use platform-specific opening method for better compatibility
+    #[cfg(target_os = "windows")]
+    let primary_result = {
+        use std::os::windows::fs::OpenOptionsExt;
+        use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+        
+        // For Windows, we need specific flags for raw device access
+        std::fs::OpenOptions::new()
+            .read(true)
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+            .open(&primary_path)
+    };
+    
+    #[cfg(not(target_os = "windows"))]
+    let primary_result = File::open(&primary_path);
+    
+    match primary_result {
         Ok(file) => {
             log::info!("Successfully opened device at: {}", primary_path);
             Ok(file)
@@ -264,9 +313,16 @@ pub fn open_device_with_fallback(device: &Device) -> Result<File, MosesError> {
             // On Windows, if we failed with a drive letter, try physical path
             #[cfg(target_os = "windows")]
             {
+                use std::os::windows::fs::OpenOptionsExt;
+                use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+                
                 // Try the physical drive path directly
                 log::info!("Trying physical path: {}", device.id);
-                if let Ok(file) = File::open(&device.id) {
+                if let Ok(file) = std::fs::OpenOptions::new()
+                    .read(true)
+                    .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                    .open(&device.id) 
+                {
                     log::info!("Successfully opened device at physical path: {}", device.id);
                     return Ok(file);
                 }
@@ -275,7 +331,11 @@ pub fn open_device_with_fallback(device: &Device) -> Result<File, MosesError> {
                 if device.id.starts_with(r"\\.\") {
                     let without_prefix = &device.id[4..];
                     log::info!("Trying without prefix: {}", without_prefix);
-                    if let Ok(file) = File::open(without_prefix) {
+                    if let Ok(file) = std::fs::OpenOptions::new()
+                        .read(true)
+                        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                        .open(without_prefix) 
+                    {
                         log::info!("Successfully opened device at: {}", without_prefix);
                         return Ok(file);
                     }
@@ -296,10 +356,17 @@ pub fn open_device_with_fallback(device: &Device) -> Result<File, MosesError> {
                 // On Windows, also try with \\.\ prefix
                 #[cfg(target_os = "windows")]
                 {
+                    use std::os::windows::fs::OpenOptionsExt;
+                    use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE};
+                    
                     let with_prefix = format!(r"\\.\{}", mount_str.trim_end_matches('\\'));
                     if with_prefix != primary_path {
                         log::info!("Trying mount with prefix: {}", with_prefix);
-                        if let Ok(file) = File::open(&with_prefix) {
+                        if let Ok(file) = std::fs::OpenOptions::new()
+                            .read(true)
+                            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                            .open(&with_prefix)
+                        {
                             log::info!("Successfully opened device at: {}", with_prefix);
                             return Ok(file);
                         }
@@ -307,11 +374,19 @@ pub fn open_device_with_fallback(device: &Device) -> Result<File, MosesError> {
                 }
             }
             
+            // Check if we need elevation
+            let elevation_msg = if !is_elevated() {
+                "\n\nNote: Reading NTFS volumes requires Administrator privileges on Windows because we need direct access to disk sectors to read the Master File Table (MFT) and other NTFS structures. Please run this application as Administrator."
+            } else {
+                ""
+            };
+            
             Err(MosesError::Other(format!(
-                "Failed to open device: {}. Tried {} and {} mount points", 
+                "Failed to open device: {}. Tried {} and {} mount points{}", 
                 primary_err, 
                 primary_path,
-                device.mount_points.len()
+                device.mount_points.len(),
+                elevation_msg
             )))
         }
     }

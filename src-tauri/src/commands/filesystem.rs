@@ -22,6 +22,22 @@ pub struct DirectoryEntry {
     pub modified: Option<DateTime<Utc>>,
     pub created: Option<DateTime<Utc>>,
     pub permissions: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub metadata: Option<FilesystemMetadata>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct FilesystemMetadata {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub compressed: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sparse: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reparse_point: Option<String>, // Type of reparse point
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub allocated_size: Option<u64>,   // Actual size on disk
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mft_record: Option<u64>,       // MFT record number for NTFS
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -40,6 +56,112 @@ pub struct DirectoryListing {
     pub entries: Vec<DirectoryEntry>,
     pub total_size: u64,
     pub item_count: usize,
+}
+
+/// Read directory contents from a filesystem with elevation if needed
+#[tauri::command]
+pub async fn read_directory_elevated(
+    device_id: String,
+    path: String,
+    filesystem: String,
+    mount_points: Option<Vec<String>>,
+) -> Result<DirectoryListing, String> {
+    use crate::worker_server::{get_worker_server, WorkerCommand, WorkerResponse};
+    
+    log::info!("Attempting elevated read of directory {} on {} filesystem", path, filesystem);
+    
+    // Create device object
+    let device = if let Some(mounts) = mount_points {
+        let mount_paths: Vec<std::path::PathBuf> = mounts.into_iter().map(std::path::PathBuf::from).collect();
+        moses_core::Device {
+            id: device_id.clone(),
+            name: String::new(),
+            size: 0,
+            device_type: moses_core::DeviceType::HardDisk,
+            mount_points: mount_paths,
+            filesystem: Some(filesystem.clone()),
+            is_removable: false,
+            is_system: false,
+        }
+    } else {
+        // Enumerate to find the device
+        use moses_core::DeviceManager;
+        use moses_platform::PlatformDeviceManager;
+        let manager = PlatformDeviceManager;
+        let devices = manager.enumerate_devices().await
+            .map_err(|e| format!("Failed to enumerate devices: {}", e))?;
+        
+        devices.into_iter()
+            .find(|d| d.id == device_id)
+            .ok_or_else(|| format!("Device {} not found", device_id))?
+    };
+    
+    // Use the persistent socket-based worker
+    let server = get_worker_server().await?;
+    let mut server_guard = server.lock().await;
+    
+    if server_guard.is_none() {
+        return Err("Worker server not initialized".to_string());
+    }
+    
+    let worker = server_guard.as_mut().unwrap();
+    
+    // Execute the read directory command via the persistent worker
+    let command = WorkerCommand::ReadDirectory {
+        device: device.clone(),
+        path: path.clone(),
+    };
+    
+    let response = worker.execute_command(command).await?;
+    
+    match response {
+        WorkerResponse::DirectoryListing(json) => {
+            // Parse the JSON result
+            let result: serde_json::Value = serde_json::from_str(&json)
+                .map_err(|e| format!("Failed to parse directory listing: {}", e))?;
+            
+            if result["success"].as_bool().unwrap_or(false) {
+                let entries = result["entries"].as_array()
+                    .ok_or("Missing entries in result")?;
+                
+                // Convert to DirectoryListing
+                let mut total_size = 0u64;
+                let mut converted_entries = Vec::new();
+                
+                for entry in entries {
+                    let name = entry["name"].as_str().unwrap_or("").to_string();
+                    let is_directory = entry["is_directory"].as_bool().unwrap_or(false);
+                    let size = entry["size"].as_u64().unwrap_or(0);
+                    
+                    if !is_directory {
+                        total_size += size;
+                    }
+                    
+                    converted_entries.push(DirectoryEntry {
+                        name: name.clone(),
+                        path: format!("{}/{}", path.trim_end_matches('/'), name),
+                        entry_type: if is_directory { EntryType::Directory } else { EntryType::File },
+                        size: if is_directory { None } else { Some(size) },
+                        modified: None,
+                        created: None,
+                        permissions: None,
+                        metadata: None,
+                    });
+                }
+                
+                Ok(DirectoryListing {
+                    path: path.clone(),
+                    entries: converted_entries,
+                    total_size,
+                    item_count: entries.len(),
+                })
+            } else {
+                Err(result["error"].as_str().unwrap_or("Unknown error").to_string())
+            }
+        }
+        WorkerResponse::Error(msg) => Err(msg),
+        _ => Err("Unexpected response from worker".to_string()),
+    }
 }
 
 /// Read directory contents from a filesystem
@@ -211,6 +333,7 @@ async fn read_ext_directory(
             modified: None, // TODO: Get from inode
             created: None,
             permissions: None,
+            metadata: None,
         }
     }).collect();
     
@@ -280,6 +403,7 @@ async fn read_fat16_directory(
             modified: None,
             created: None,
             permissions: None,
+            metadata: None,
         }
     }).collect();
     
@@ -330,6 +454,7 @@ async fn read_fat32_directory(
             modified: None, // TODO: Parse FAT32 timestamps
             created: None,
             permissions: None,
+            metadata: None,
         }
     }).collect();
     
@@ -343,11 +468,54 @@ async fn read_fat32_directory(
 }
 
 async fn read_ntfs_directory(
-    _device: &Device,
-    _path: &str,
+    device: &Device,
+    path: &str,
 ) -> Result<DirectoryListing, String> {
-    // NTFS is complex but well-documented
-    Err("NTFS reading coming soon".to_string())
+    use moses_formatters::ntfs::NtfsReader;
+    
+    log::info!("Reading NTFS directory: {} on device {}", path, device.id);
+    
+    // Create NTFS reader
+    let mut reader = NtfsReader::new(device.clone())
+        .map_err(|e| format!("Failed to open NTFS filesystem: {:?}", e))?;
+    
+    // Read directory
+    let entries = reader.list_directory(path)
+        .map_err(|e| format!("Failed to read directory {}: {:?}", path, e))?;
+    
+    // Convert to our format
+    let mut total_size = 0u64;
+    let converted_entries: Vec<DirectoryEntry> = entries.into_iter().map(|entry| {
+        if !entry.is_directory {
+            total_size += entry.size;
+        }
+        DirectoryEntry {
+            name: entry.name.clone(),
+            path: if path == "/" || path.is_empty() {
+                format!("/{}", entry.name)
+            } else {
+                format!("{}/{}", path.trim_end_matches('/'), entry.name)
+            },
+            entry_type: if entry.is_directory {
+                EntryType::Directory
+            } else {
+                EntryType::File
+            },
+            size: if entry.is_directory { None } else { Some(entry.size) },
+            modified: None, // TODO: Parse NTFS timestamps
+            created: None,
+            permissions: None,
+            metadata: None,
+        }
+    }).collect();
+    
+    let item_count = converted_entries.len();
+    Ok(DirectoryListing {
+        path: path.to_string(),
+        entries: converted_entries,
+        total_size,
+        item_count,
+    })
 }
 
 async fn read_exfat_directory(
@@ -386,6 +554,7 @@ async fn read_exfat_directory(
             modified: None, // TODO: Parse timestamps
             created: None,
             permissions: None,
+            metadata: None,
         }
     }).collect();
     
@@ -631,131 +800,38 @@ pub async fn analyze_filesystem_elevated(
     
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-        use std::env;
-        use std::fs;
-        use moses_platform::windows::elevation::is_elevated;
-        use std::os::windows::process::CommandExt;
+        use crate::worker_server::{get_worker_server, WorkerCommand, WorkerResponse};
         
         // Get device info
         let device = get_device(&device_id)
             .ok_or_else(|| format!("Device {} not found", device_id))?;
         
-        // Get the path to the elevated worker executable
-        let worker_exe = env::current_exe()
-            .map_err(|e| format!("Failed to get executable path: {}", e))?
-            .parent()
-            .ok_or_else(|| "Failed to get executable directory".to_string())?
-            .join("moses-worker.exe");
+        // Use the persistent socket-based worker
+        let server = get_worker_server().await?;
+        let mut server_guard = server.lock().await;
         
-        // Serialize device to JSON and write to temp file
-        let device_json = serde_json::to_string(&device)
-            .map_err(|e| format!("Failed to serialize device: {}", e))?;
-        
-        let temp_dir = env::temp_dir();
-        let device_file = temp_dir.join(format!("moses_device_{}.json", std::process::id()));
-        fs::write(&device_file, &device_json)
-            .map_err(|e| format!("Failed to write device file: {}", e))?;
-        
-        // If already elevated, run directly
-        if is_elevated() {
-            let output = Command::new(&worker_exe)
-                .arg("analyze")
-                .arg(&device_file)
-                .output()
-                .map_err(|e| format!("Failed to run worker: {}", e))?;
+        if let Some(worker) = server_guard.as_mut() {
+            // Send analyze command through the socket
+            let command = WorkerCommand::Analyze { device: device.clone() };
             
-            // Clean up temp file
-            let _ = fs::remove_file(&device_file);
-            
-            if output.status.success() {
-                // The worker outputs the result file path
-                let result_path = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                
-                // Read the result file
-                let result = fs::read_to_string(&result_path)
-                    .map_err(|e| format!("Failed to read result: {}", e))?;
-                
-                // Clean up result file
-                let _ = fs::remove_file(&result_path);
-                
-                // Cache the result
-                cache_analysis_result(&device_id, &result);
-                
-                return Ok(result);
-            } else {
-                let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(format!("Analysis failed: {}", stderr));
+            match worker.execute_command(command).await {
+                Ok(WorkerResponse::Success(result)) => {
+                    // Cache the result
+                    cache_analysis_result(&device_id, &result);
+                    Ok(result)
+                }
+                Ok(WorkerResponse::Error(e)) => {
+                    Err(format!("Analysis failed: {}", e))
+                }
+                Ok(_) => {
+                    Err("Unexpected response from worker".to_string())
+                }
+                Err(e) => {
+                    Err(format!("Worker communication failed: {}", e))
+                }
             }
-        }
-        
-        // Need elevation - use PowerShell to request UAC using the worker
-        let ps_script = format!(
-            r#"
-            $worker = '{}'
-            $deviceFile = '{}'
-            
-            # Start the worker with elevation
-            $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-            $startInfo.FileName = $worker
-            $startInfo.Arguments = "analyze `"$deviceFile`""
-            $startInfo.Verb = 'runas'
-            $startInfo.UseShellExecute = $true
-            $startInfo.RedirectStandardOutput = $false
-            $startInfo.RedirectStandardError = $false
-            
-            try {{
-                $process = [System.Diagnostics.Process]::Start($startInfo)
-                $process.WaitForExit()
-                
-                # Clean up temp file
-                Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
-                
-                if ($process.ExitCode -eq 0) {{
-                    # Look for the result file created by the worker
-                    $resultFiles = Get-ChildItem $env:TEMP -Filter "moses_analysis_result_*.txt" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-                    if ($resultFiles) {{
-                        $content = Get-Content -Path $resultFiles[0].FullName -Raw
-                        Remove-Item -Path $resultFiles[0].FullName
-                        Write-Output $content
-                        exit 0
-                    }} else {{
-                        Write-Error "Analysis completed but no result file found"
-                        exit 1
-                    }}
-                }} else {{
-                    Write-Error "Analysis failed with exit code: $($process.ExitCode)"
-                    exit 1
-                }}
-            }} catch {{
-                Write-Error "Failed to start elevated worker: $_"
-                # Clean up temp file on error
-                Remove-Item -Path $deviceFile -ErrorAction SilentlyContinue
-                exit 1
-            }}
-            "#,
-            worker_exe.display(),
-            device_file.display()
-        );
-        
-        const CREATE_NO_WINDOW: u32 = 0x08000000;
-        
-        let output = Command::new("powershell")
-            .args(&[
-                "-NoProfile",
-                "-ExecutionPolicy", "Bypass",
-                "-Command", &ps_script
-            ])
-            .creation_flags(CREATE_NO_WINDOW)
-            .output()
-            .map_err(|e| format!("Failed to run PowerShell: {}", e))?;
-        
-        if output.status.success() {
-            let result = String::from_utf8_lossy(&output.stdout);
-            Ok(result.trim().to_string())
         } else {
-            let error = String::from_utf8_lossy(&output.stderr);
-            Err(format!("Analysis failed: {}", error.trim()))
+            return Err("Worker server not initialized".to_string());
         }
     }
     

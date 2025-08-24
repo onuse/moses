@@ -49,15 +49,60 @@ impl DiskCleaner {
     
     #[cfg(target_os = "windows")]
     fn clean_windows(device: &Device, options: &CleanOptions) -> Result<(), MosesError> {
-        use std::os::windows::fs::OpenOptionsExt;
-        use winapi::um::winnt::{FILE_SHARE_READ, FILE_SHARE_WRITE, GENERIC_WRITE};
+        // First, try to dismount any volumes on this device
+        // This is crucial for being able to write to the disk
+        if !device.mount_points.is_empty() {
+            log::info!("Attempting to dismount volumes before cleaning");
+            for mount_point in &device.mount_points {
+                if let Some(drive_letter) = mount_point.to_str() {
+                    log::info!("Dismounting volume: {}", drive_letter);
+                    // We'll try to open and lock the volume, but continue even if it fails
+                    if let Ok(vol_handle) = OpenOptions::new()
+                        .read(true)
+                        .write(true)
+                        .open(format!(r"\\.\{}", drive_letter.trim_end_matches('\\')))
+                    {
+                        use std::os::windows::io::AsRawHandle;
+                        use winapi::um::winioctl::{FSCTL_LOCK_VOLUME, FSCTL_DISMOUNT_VOLUME};
+                        use winapi::um::ioapiset::DeviceIoControl;
+                        
+                        let handle = vol_handle.as_raw_handle();
+                        let mut bytes_returned: u32 = 0;
+                        
+                        // Try to lock the volume
+                        unsafe {
+                            DeviceIoControl(
+                                handle as *mut _,
+                                FSCTL_LOCK_VOLUME,
+                                std::ptr::null_mut(),
+                                0,
+                                std::ptr::null_mut(),
+                                0,
+                                &mut bytes_returned,
+                                std::ptr::null_mut(),
+                            );
+                            
+                            // Try to dismount
+                            DeviceIoControl(
+                                handle as *mut _,
+                                FSCTL_DISMOUNT_VOLUME,
+                                std::ptr::null_mut(),
+                                0,
+                                std::ptr::null_mut(),
+                                0,
+                                &mut bytes_returned,
+                                std::ptr::null_mut(),
+                            );
+                        }
+                    }
+                }
+            }
+        }
         
-        let mut file = OpenOptions::new()
-            .write(true)
-            .custom_flags(FILE_SHARE_READ | FILE_SHARE_WRITE)
-            .access_mode(GENERIC_WRITE)
-            .open(&device.id)
-            .map_err(|e| MosesError::IoError(e))?;
+        // Now open the physical device for cleaning
+        // Use the same method as formatters
+        use crate::utils::open_device_write;
+        let mut file = open_device_write(device)?;
         
         // Clean based on options
         match options.wipe_method {
@@ -134,7 +179,15 @@ impl DiskCleaner {
         writer.write_all(&mb_buffer)
             .map_err(|e| MosesError::Other(format!("Failed to wipe first MB: {}", e)))?;
         
-        log::info!("Quick clean completed - wiped critical sectors");
+        // 6. Wipe common partition start offset (1MB - sector 2048)
+        // This is where Windows typically starts the first partition
+        writer.seek(SeekFrom::Start(1024 * 1024))
+            .map_err(|e| MosesError::Other(format!("Failed to seek to 1MB offset: {}", e)))?;
+        let partition_wipe = vec![0u8; 64 * 1024]; // Wipe 64KB at partition start
+        writer.write_all(&partition_wipe)
+            .map_err(|e| MosesError::Other(format!("Failed to wipe partition offset: {}", e)))?;
+        
+        log::info!("Quick clean completed - wiped critical sectors including partition offset");
         Ok(())
     }
     
@@ -241,10 +294,11 @@ mod tests {
     #[test]
     fn test_quick_clean() {
         let mut buffer = vec![0xFF; 2 * 1024 * 1024]; // 2MB buffer filled with 0xFF
+        let buffer_len = buffer.len() as u64;
         let mut cursor = Cursor::new(&mut buffer);
         
         // Simulate quick clean
-        DiskCleaner::quick_clean(&mut cursor, buffer.len() as u64).unwrap();
+        DiskCleaner::quick_clean(&mut cursor, buffer_len).unwrap();
         
         // Check that MBR is zeroed
         assert_eq!(buffer[0], 0);

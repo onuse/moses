@@ -5,8 +5,7 @@ use moses_core::{
 use std::sync::Arc;
 
 // Import all our formatters
-#[cfg(not(target_os = "windows"))]
-use crate::ntfs::NtfsFormatter;
+// NTFS support is read-only for now (Phase 1)
 use crate::fat32::Fat32Formatter;
 use crate::exfat::ExFatFormatter;
 
@@ -16,8 +15,6 @@ use crate::ext4::Ext4Formatter;
 
 #[cfg(target_os = "windows")]
 use crate::ext4_native::Ext4NativeFormatter;
-#[cfg(target_os = "windows")]
-use crate::ntfs_windows::NtfsWindowsFormatter;
 #[cfg(target_os = "linux")]
 use crate::ext4_linux::Ext4LinuxFormatter;
 
@@ -106,60 +103,8 @@ pub fn register_builtin_formatters(registry: &mut FormatterRegistry) -> Result<(
         )?;
     }
 
-    // NTFS - Windows filesystem
-    #[cfg(target_os = "windows")]
-    {
-        registry.register(
-            "ntfs".to_string(),
-            Arc::new(NtfsWindowsFormatter) as Arc<dyn FilesystemFormatter>,
-            FormatterMetadataBuilder::new("ntfs")
-                .description("New Technology File System - Primary Windows filesystem")
-                .aliases(vec!["windows", "nt"])
-                .category(FormatterCategory::Legacy)
-                .size_range(Some(1024 * 1024), None) // 1MB minimum
-                .version("1.0.0")
-                .author("Moses Team")
-                .capability(|c| {
-                    c.supports_labels = true;
-                    c.max_label_length = Some(32);
-                    c.supports_uuid = true;
-                    c.supports_encryption = true;
-                    c.supports_compression = true;
-                    c.supports_resize = true;
-                    c.max_file_size = Some(16 * 1024_u64.pow(4)); // 16TB
-                    c.case_sensitive = false; // Can be enabled but not default
-                    c.preserves_permissions = true;
-                })
-                .build()
-        )?;
-    }
-    
-    #[cfg(not(target_os = "windows"))]
-    {
-        registry.register(
-            "ntfs".to_string(),
-            Arc::new(NtfsFormatter) as Arc<dyn FilesystemFormatter>,
-            FormatterMetadataBuilder::new("ntfs")
-                .description("New Technology File System - Primary Windows filesystem")
-                .aliases(vec!["windows", "nt"])
-                .category(FormatterCategory::Legacy)
-                .size_range(Some(1024 * 1024), None)
-                .version("1.0.0")
-                .author("Moses Team")
-                .capability(|c| {
-                    c.supports_labels = true;
-                    c.max_label_length = Some(32);
-                    c.supports_uuid = true;
-                    c.supports_encryption = true;
-                    c.supports_compression = true;
-                    c.supports_resize = true;
-                    c.max_file_size = Some(16 * 1024_u64.pow(4));
-                    c.case_sensitive = false;
-                    c.preserves_permissions = true;
-                })
-                .build()
-        )?;
-    }
+    // NTFS - Read-only support for now (Phase 1)
+    // Formatter will be added in Phase 3-5 when write support is implemented
 
     // FAT32 - Universal legacy filesystem
     registry.register(

@@ -2,7 +2,7 @@
 // Simplified version that leverages AlignedDeviceReader
 
 use moses_core::{Device, MosesError};
-use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo};
+use crate::device_reader::{AlignedDeviceReader, FilesystemReader, FileEntry, FilesystemInfo, FileMetadata};
 use log::{info, debug};
 use std::collections::HashMap;
 
@@ -259,6 +259,7 @@ impl ExFatReaderAligned {
                         is_directory: file_entry.file_attributes & 0x10 != 0,
                         size: stream_entry.data_length,
                         cluster: Some(stream_entry.first_cluster),
+                        metadata: FileMetadata::default(),
                     });
                     
                     // Skip all the entries we just read

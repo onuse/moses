@@ -222,12 +222,32 @@ export default {
             return str
           }) : undefined
         
-        const result = await invoke('read_directory', {
-          deviceId: props.drive.id,
-          path: path,
-          filesystem: props.drive.filesystem || 'unknown',
-          mountPoints: mountPointStrings
-        })
+        let result
+        try {
+          // First try normal read
+          result = await invoke('read_directory', {
+            deviceId: props.drive.id,
+            path: path,
+            filesystem: props.drive.filesystem || 'unknown',
+            mountPoints: mountPointStrings
+          })
+        } catch (normalErr) {
+          // If access denied, try elevated read
+          if (normalErr.toString().toLowerCase().includes('access') || 
+              normalErr.toString().toLowerCase().includes('denied') ||
+              normalErr.toString().toLowerCase().includes('permission')) {
+            console.log('Normal read failed with access error, trying elevated read:', normalErr)
+            result = await invoke('read_directory_elevated', {
+              deviceId: props.drive.id,
+              path: path,
+              filesystem: props.drive.filesystem || 'unknown',
+              mountPoints: mountPointStrings
+            })
+          } else {
+            // Other errors, re-throw
+            throw normalErr
+          }
+        }
         
         items.value = result.entries.map(entry => ({
           name: entry.name,
