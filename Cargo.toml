@@ -3,7 +3,7 @@ members = [
     "core",
     "daemon",
     "cli",
-    "formatters",
+    "filesystems",
     "platform",
 ]
 exclude = ["src-tauri"]

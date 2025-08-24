@@ -26,6 +26,9 @@ pub enum MosesError {
     #[error("Device is not safe to format: {0}")]
     UnsafeDevice(String),
     
+    #[error("Safety violation: {0}")]
+    SafetyViolation(String),
+    
     #[error("IO error: {0}")]
     IoError(#[from] std::io::Error),
     

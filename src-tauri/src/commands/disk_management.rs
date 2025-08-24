@@ -1,13 +1,13 @@
 // Tauri commands for disk management operations
 use moses_core::{Device, DeviceManager};
-use moses_formatters::disk_manager::{
+use moses_filesystems::disk_manager::{
     CleanOptions, WipeMethod,
     ConflictDetector, ConflictReport
 };
 use moses_platform::PlatformDeviceManager;
 
 #[cfg(not(target_os = "windows"))]
-use moses_formatters::disk_manager::{
+use moses_filesystems::disk_manager::{
     DiskManager, DiskCleaner,
     PartitionStyleConverter, PartitionStyle,
 };

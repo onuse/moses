@@ -29,7 +29,7 @@ These are the **most important tests** in the entire project. They verify:
 ```rust
 #[test]
 fn test_ext4_formatter_refuses_system_drive() {
-    let formatter = moses_formatters::Ext4Formatter;
+    let formatter = moses_filesystems::Ext4Formatter;
     let system_drive = create_system_drive();
     
     assert!(!formatter.can_format(&system_drive), 

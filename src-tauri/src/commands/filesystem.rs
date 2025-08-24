@@ -4,8 +4,8 @@ use chrono::{DateTime, Utc};
 use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
-use moses_formatters::device_reader::FilesystemReader;
-use moses_formatters::diagnostics::analyze_unknown_filesystem;
+use moses_filesystems::device_reader::FilesystemReader;
+use moses_filesystems::diagnostics::analyze_unknown_filesystem;
 use crate::filesystem_cache;
 
 // Cache for filesystem types to avoid repeated admin prompts
@@ -286,7 +286,7 @@ async fn read_ext_directory(
     path: &str,
     variant: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_formatters::ext4_native::ExtReader;
+    use moses_filesystems::ext4_native::ExtReader;
     
     log::info!("Reading {} directory: {} on device {}", variant, path, device.id);
     
@@ -302,7 +302,7 @@ async fn read_ext_directory(
     let mut total_size = 0u64;
     let converted_entries: Vec<DirectoryEntry> = entries.into_iter().map(|entry| {
         // Only count size for files, not directories
-        let size = if entry.entry_type == moses_formatters::ext4_native::reader::FileType::Regular {
+        let size = if entry.entry_type == moses_filesystems::ext4_native::reader::FileType::Regular {
             // We'd need to get the actual size from the inode
             // For now, just return 0 as we don't have size in DirEntry
             Some(0u64)
@@ -322,11 +322,11 @@ async fn read_ext_directory(
                 format!("{}/{}", path.trim_end_matches('/'), entry.name)
             },
             entry_type: match entry.entry_type {
-                moses_formatters::ext4_native::reader::FileType::Directory => EntryType::Directory,
-                moses_formatters::ext4_native::reader::FileType::Regular => EntryType::File,
-                moses_formatters::ext4_native::reader::FileType::Symlink => EntryType::Symlink,
-                moses_formatters::ext4_native::reader::FileType::CharDevice |
-                moses_formatters::ext4_native::reader::FileType::BlockDevice => EntryType::Device,
+                moses_filesystems::ext4_native::reader::FileType::Directory => EntryType::Directory,
+                moses_filesystems::ext4_native::reader::FileType::Regular => EntryType::File,
+                moses_filesystems::ext4_native::reader::FileType::Symlink => EntryType::Symlink,
+                moses_filesystems::ext4_native::reader::FileType::CharDevice |
+                moses_filesystems::ext4_native::reader::FileType::BlockDevice => EntryType::Device,
                 _ => EntryType::Other,
             },
             size,
@@ -355,7 +355,7 @@ async fn read_ext_file(
     #[cfg(target_os = "windows")]
     {
         // TODO: Implement ext4 file reader for Windows
-        // This would use the moses_formatters::Ext4NativeFormatter reader functionality
+        // This would use the moses_filesystems::Ext4NativeFormatter reader functionality
         Err("ext4 file reading not yet implemented on Windows".to_string())
     }
     
@@ -369,7 +369,7 @@ async fn read_fat16_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_formatters::Fat16Reader;
+    use moses_filesystems::Fat16Reader;
     
     log::info!("Reading FAT16 directory: {} on device {}", path, device.id);
     
@@ -420,7 +420,7 @@ async fn read_fat32_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_formatters::Fat32Reader;
+    use moses_filesystems::Fat32Reader;
     
     log::info!("Reading FAT32 directory: {} on device {}", path, device.id);
     
@@ -471,7 +471,7 @@ async fn read_ntfs_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_formatters::ntfs::NtfsReader;
+    use moses_filesystems::ntfs::NtfsReader;
     
     log::info!("Reading NTFS directory: {} on device {}", path, device.id);
     
@@ -522,7 +522,7 @@ async fn read_exfat_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_formatters::ExFatReader;
+    use moses_filesystems::ExFatReader;
     
     // Create reader
     let mut reader = ExFatReader::new(device.clone())
@@ -596,7 +596,7 @@ pub async fn detect_filesystem_elevated(
             .map_err(|e| format!("Failed to open device {}: {}", device_id, e))?;
         
         // Use the unified detection system
-        let fs_type = moses_formatters::detection::detect_filesystem(&mut file)
+        let fs_type = moses_filesystems::detection::detect_filesystem(&mut file)
             .map_err(|e| format!("Failed to detect filesystem: {:?}", e))?;
         
         // Cache the result
@@ -633,7 +633,7 @@ pub async fn request_elevated_filesystem_detection(
         use std::fs::File;
         
         if let Ok(mut file) = File::open(&device_id) {
-            match moses_formatters::detection::detect_filesystem(&mut file) {
+            match moses_filesystems::detection::detect_filesystem(&mut file) {
                 Ok(fs_type) => {
                     // Cache the result
                     if let Ok(mut cache) = FILESYSTEM_CACHE.lock() {
@@ -712,7 +712,7 @@ pub async fn get_filesystem_type(
     let device = get_device(&device_id)
         .ok_or_else(|| format!("Device {} not found", device_id))?;
     
-    match moses_formatters::diagnostics::get_filesystem_type(&device) {
+    match moses_filesystems::diagnostics::get_filesystem_type(&device) {
         Ok(fs_type) => {
             log::info!("Detected filesystem type: {}", fs_type);
             Ok(fs_type)

@@ -537,8 +537,14 @@ export default {
       document.addEventListener('click', handleClickOutside)
     })
 
-    // Watch for drive changes
+    // Watch for drive changes after initial mount
+    // Use a flag to skip the first load since onMounted already handles it
+    let isFirstWatch = true
     watch(() => props.drive, () => {
+      if (isFirstWatch) {
+        isFirstWatch = false
+        return
+      }
       currentPath.value = '/'
       selectedItems.value = []
       loadDirectory('/')

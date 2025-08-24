@@ -3,10 +3,10 @@
   <assemblyIdentity
     version="1.0.0.0"
     processorArchitecture="*"
-    name="Moses.DriveFormatter"
+    name="Moses.DriveBridge"
     type="win32"
   />
-  <description>Moses - Cross-Platform Drive Formatter</description>
+  <description>Moses - Multi-OS Extended Storage</description>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v3">
     <security>
       <requestedPrivileges>

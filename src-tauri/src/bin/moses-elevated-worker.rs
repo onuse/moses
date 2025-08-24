@@ -6,15 +6,15 @@ use std::fs;
 use std::path::Path;
 use std::io::Write;
 use moses_core::{Device, FormatOptions, FilesystemFormatter};
-use moses_formatters::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
-use moses_formatters::diagnostics::analyze_unknown_filesystem;
+use moses_filesystems::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
+use moses_filesystems::diagnostics::analyze_unknown_filesystem;
 use serde_json;
-use moses_formatters::disk_manager::{
+use moses_filesystems::disk_manager::{
     DiskManager, DiskCleaner, CleanOptions,
     PartitionStyleConverter, PartitionStyle,
 };
 #[cfg(target_os = "windows")]
-use moses_formatters::{Ext2Formatter, Ext3Formatter};
+use moses_filesystems::{Ext2Formatter, Ext3Formatter};
 use serde::{Deserialize, Serialize};
 use log::{Record, Level, Metadata, LevelFilter};
 use std::net::TcpStream;
@@ -23,10 +23,10 @@ use std::sync::Mutex;
 
 
 #[cfg(target_os = "windows")]
-use moses_formatters::Ext4NativeFormatter;
+use moses_filesystems::Ext4NativeFormatter;
 
 #[cfg(target_os = "linux")]
-use moses_formatters::Ext4LinuxFormatter;
+use moses_filesystems::Ext4LinuxFormatter;
 
 // Global log file path for this worker instance
 use std::sync::OnceLock;
@@ -544,7 +544,7 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
         log_to_file(&format!("Existing filesystem detected ({}), cleaning disk first", 
                             device.filesystem.as_ref().unwrap()));
         
-        use moses_formatters::disk_manager::{DiskCleaner, CleanOptions, WipeMethod};
+        use moses_filesystems::disk_manager::{DiskCleaner, CleanOptions, WipeMethod};
         let clean_options = CleanOptions {
             wipe_method: WipeMethod::Quick,
             zero_entire_disk: false,
@@ -975,7 +975,7 @@ fn handle_convert(device_path: &str, target_style: &str) {
 }
 
 fn handle_read_directory(device_path: &str, directory_path: &str) {
-    use moses_formatters::device_reader::FilesystemReader;
+    use moses_filesystems::device_reader::FilesystemReader;
     
     log_to_file(&format!("Reading directory: device={}, path={}", device_path, directory_path));
     
@@ -1003,8 +1003,8 @@ fn handle_read_directory(device_path: &str, directory_path: &str) {
     };
     
     // Detect filesystem type by opening the device
-    use moses_formatters::detection::detect_filesystem;
-    use moses_formatters::utils::open_device_with_fallback;
+    use moses_filesystems::detection::detect_filesystem;
+    use moses_filesystems::utils::open_device_with_fallback;
     
     let fs_type = match open_device_with_fallback(&device) {
         Ok(mut file) => {
@@ -1047,7 +1047,7 @@ fn handle_read_directory(device_path: &str, directory_path: &str) {
     // Create appropriate reader based on filesystem type
     let result = match fs_type.as_str() {
         "ntfs" => {
-            use moses_formatters::ntfs::NtfsReader;
+            use moses_filesystems::ntfs::NtfsReader;
             match NtfsReader::new(device.clone()) {
                 Ok(mut reader) => {
                     reader.list_directory(directory_path)
@@ -1057,7 +1057,7 @@ fn handle_read_directory(device_path: &str, directory_path: &str) {
             }
         }
         "fat32" | "vfat" => {
-            use moses_formatters::fat32::Fat32Reader;
+            use moses_filesystems::fat32::Fat32Reader;
             match Fat32Reader::new(device.clone()) {
                 Ok(mut reader) => {
                     reader.list_directory(directory_path)
@@ -1067,7 +1067,7 @@ fn handle_read_directory(device_path: &str, directory_path: &str) {
             }
         }
         "fat16" | "fat12" => {
-            use moses_formatters::fat16::Fat16Reader;
+            use moses_filesystems::fat16::Fat16Reader;
             match Fat16Reader::new(device.clone()) {
                 Ok(mut reader) => {
                     reader.list_directory(directory_path)
@@ -1077,7 +1077,7 @@ fn handle_read_directory(device_path: &str, directory_path: &str) {
             }
         }
         "exfat" => {
-            use moses_formatters::exfat::ExFatReader;
+            use moses_filesystems::exfat::ExFatReader;
             match ExFatReader::new(device.clone()) {
                 Ok(mut reader) => {
                     reader.list_directory(directory_path)

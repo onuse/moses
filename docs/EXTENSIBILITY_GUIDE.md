@@ -100,7 +100,7 @@ Add to the format executor in `src-tauri/src/lib.rs`:
 Moses provides utilities to make implementation easier:
 
 ```rust
-use moses_formatters::common::{
+use moses_filesystems::common::{
     AlignedBuffer,      // For sector-aligned I/O
     DeviceWriter,       // Cross-platform device writing
     Checksum,          // Various checksum algorithms

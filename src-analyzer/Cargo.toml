@@ -9,6 +9,6 @@ path = "src/main.rs"
 
 [dependencies]
 moses-core = { path = "../core" }
-moses-formatters = { path = "../formatters" }
+moses-filesystems = { path = "../filesystems" }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

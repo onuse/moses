@@ -1,6 +1,6 @@
 // Disk management commands using socket-based worker
 use moses_core::Device;
-use moses_formatters::disk_manager::{
+use moses_filesystems::disk_manager::{
     CleanOptions, WipeMethod,
     ConflictDetector, ConflictReport
 };

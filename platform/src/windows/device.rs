@@ -74,7 +74,7 @@ impl WindowsDeviceManager {
         };
         
         // Use the unified detection system from formatters crate
-        match moses_formatters::detection::detect_filesystem(&mut file) {
+        match moses_filesystems::detection::detect_filesystem(&mut file) {
             Ok(fs_type) => {
                 if fs_type != "unknown" {
                     log::info!("Detected {} filesystem on {}", fs_type, device_path);
@@ -107,7 +107,7 @@ impl WindowsDeviceManager {
         };
         
         // Use the diagnostics module to get filesystem/partition table type
-        match moses_formatters::diagnostics::get_filesystem_type(&device) {
+        match moses_filesystems::diagnostics::get_filesystem_type(&device) {
             Ok(fs_type) => {
                 // Only return if it's a partition table type, not a filesystem
                 if fs_type == "gpt" || fs_type == "gpt-empty" || fs_type == "mbr" {

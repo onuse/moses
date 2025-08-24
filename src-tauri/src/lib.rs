@@ -1,7 +1,7 @@
 use moses_core::{Device, DeviceManager, FilesystemFormatter, FormatOptions, SimulationReport};
 
 use moses_platform::PlatformDeviceManager;
-use moses_formatters::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
+use moses_filesystems::{Fat16Formatter, Fat32Formatter, ExFatFormatter};
 
 #[cfg(target_os = "windows")]
 use moses_platform::windows::elevation::is_elevated;
@@ -12,10 +12,10 @@ mod filesystem_cache;
 mod worker_server;
 
 #[cfg(target_os = "linux")]
-use moses_formatters::Ext4LinuxFormatter;
+use moses_filesystems::Ext4LinuxFormatter;
 
 #[cfg(target_os = "windows")]
-use moses_formatters::Ext4NativeFormatter;
+use moses_filesystems::Ext4NativeFormatter;
 
 #[tauri::command]
 async fn detect_drives() -> Result<Vec<Device>, String> {

@@ -5,6 +5,7 @@ pub mod format;
 pub mod registry;
 pub mod plugin;
 pub mod safety;
+pub mod safety_extensions;
 
 pub mod test_utils;
 
@@ -15,3 +16,8 @@ pub use format::FormatManager;
 pub use registry::{FormatterRegistry, FormatterMetadata, FormatterCategory, FormatterCapabilities, FormatterMetadataBuilder};
 pub use plugin::{MosesPlugin, FormatterPlugin, ScriptFormatter};
 pub use safety::{SafetyCheck, SafetyValidation, SafeFormatter, RiskLevel};
+pub use safety_extensions::{
+    LockedDevice, SafetyApproval, OsVerification, OsDeviceVerifier,
+    CertificationLevel, CertificationResult, FormatterCertifier,
+    EnhancedSafetyManager, EnhancedSafetyCheck,
+};

@@ -12,7 +12,7 @@ path = "src/main.rs"
 [dependencies]
 moses-core = { path = "../core" }
 moses-platform = { path = "../platform" }
-moses-formatters = { path = "../formatters" }
+moses-filesystems = { path = "../filesystems" }
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }

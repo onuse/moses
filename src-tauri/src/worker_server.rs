@@ -5,7 +5,7 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use serde::{Deserialize, Serialize};
 use moses_core::{Device, FormatOptions};
-use moses_formatters::disk_manager::CleanOptions;
+use moses_filesystems::disk_manager::CleanOptions;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +55,7 @@ pub struct WorkerServer {
     connection: Arc<Mutex<Option<TcpStream>>>,
     port: u16,
     log_sender: Arc<Mutex<Option<mpsc::UnboundedSender<(String, String)>>>>,
+    spawning: Arc<Mutex<bool>>,
 }
 
 impl WorkerServer {
@@ -75,6 +76,7 @@ impl WorkerServer {
             connection: Arc::new(Mutex::new(None)),
             port,
             log_sender: Arc::new(Mutex::new(None)),
+            spawning: Arc::new(Mutex::new(false)),
         })
     }
     
@@ -85,49 +87,91 @@ impl WorkerServer {
     
     /// Ensure the worker is connected, spawning it if necessary
     pub async fn ensure_connected(&self) -> Result<(), String> {
-        let mut conn = self.connection.lock().await;
-        
-        // Check if we already have a connection
-        if let Some(ref mut stream) = *conn {
-            // Try to set TCP keepalive to detect broken connections
-            let _ = stream.set_nodelay(true);
-            
-            log::info!("Checking existing worker connection...");
-            // Send a ping to check if connection is alive
-            match self.ping_worker(stream).await {
-                Ok(()) => {
-                    log::info!("Worker connection is alive");
-                    return Ok(());
-                },
-                Err(e) => {
-                    log::warn!("Worker ping failed: {}, will reconnect...", e);
-                    // Connection is dead, remove it
-                    *conn = None;
+        // Loop to handle waiting for another thread's spawn
+        loop {
+            // First check if we have a working connection
+            {
+                let mut conn = self.connection.lock().await;
+                
+                // Check if we already have a connection
+                if let Some(ref mut stream) = *conn {
+                    // Try to set TCP keepalive to detect broken connections
+                    let _ = stream.set_nodelay(true);
+                    
+                    log::info!("Checking existing worker connection...");
+                    // Send a ping to check if connection is alive
+                    match self.ping_worker(stream).await {
+                        Ok(()) => {
+                            log::info!("Worker connection is alive");
+                            return Ok(());
+                        },
+                        Err(e) => {
+                            log::warn!("Worker ping failed: {}, will reconnect...", e);
+                            // Connection is dead, remove it
+                            *conn = None;
+                        }
+                    }
+                } else {
+                    log::info!("No existing worker connection, will spawn new worker");
                 }
             }
-        } else {
-            log::info!("No existing worker connection, will spawn new worker");
-        }
-        
-        // Spawn the elevated worker
-        self.spawn_elevated_worker().await?;
-        
-        // Accept the connection (with timeout)
-        if let Some(listener) = &self.listener {
-            let accept_future = listener.accept();
-            let timeout = tokio::time::timeout(Duration::from_secs(30), accept_future);
             
-            match timeout.await {
-                Ok(Ok((stream, addr))) => {
-                    log::info!("Worker connected from {}", addr);
-                    *conn = Some(stream);
-                    Ok(())
+            // Check if another thread is already spawning
+            {
+                let mut spawning = self.spawning.lock().await;
+                if *spawning {
+                    log::info!("Another thread is already spawning a worker, waiting...");
+                    drop(spawning);
+                    
+                    // Wait for the other thread to finish spawning
+                    tokio::time::sleep(Duration::from_millis(500)).await;
+                    
+                    // Check if connection is now available
+                    let conn = self.connection.lock().await;
+                    if conn.is_some() {
+                        log::info!("Connection established by another thread");
+                        return Ok(());
+                    }
+                    
+                    // If still no connection, continue the loop to try again
+                    continue;
                 }
-                Ok(Err(e)) => Err(format!("Failed to accept connection: {}", e)),
-                Err(_) => Err("Worker connection timeout".to_string()),
+                
+                // Mark that we're spawning
+                *spawning = true;
             }
-        } else {
-            Err("Listener not available".to_string())
+            
+            // Spawn the elevated worker
+            let spawn_result = self.spawn_elevated_worker().await;
+            
+            // Clear the spawning flag regardless of result
+            {
+                let mut spawning = self.spawning.lock().await;
+                *spawning = false;
+            }
+            
+            spawn_result?;
+            
+            // Store the new connection
+            let mut conn = self.connection.lock().await;
+            
+            // Accept the connection (with timeout)
+            if let Some(listener) = &self.listener {
+                let accept_future = listener.accept();
+                let timeout = tokio::time::timeout(Duration::from_secs(30), accept_future);
+                
+                match timeout.await {
+                    Ok(Ok((stream, addr))) => {
+                        log::info!("Worker connected from {}", addr);
+                        *conn = Some(stream);
+                        return Ok(());
+                    }
+                    Ok(Err(e)) => return Err(format!("Failed to accept connection: {}", e)),
+                    Err(_) => return Err("Worker connection timeout".to_string()),
+                }
+            } else {
+                return Err("Listener not available".to_string());
+            }
         }
     }
     
@@ -362,6 +406,7 @@ impl WorkerServer {
     }
     
     /// Set up log streaming channel
+    #[allow(dead_code)]
     pub fn setup_log_channel(&self) -> mpsc::UnboundedReceiver<(String, String)> {
         let (tx, rx) = mpsc::unbounded_channel();
         let sender_arc = self.log_sender.clone();

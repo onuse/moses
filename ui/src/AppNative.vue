@@ -479,13 +479,6 @@ const executeFormat = async () => {
   
   if (!confirm(confirmMsg)) return
   
-  // Second confirmation
-  const typed = prompt(`Type "FORMAT" to confirm formatting of ${selectedDevice.value.name}:`)
-  if (typed !== 'FORMAT') {
-    alert('Format cancelled')
-    return
-  }
-  
   isFormatting.value = true
   formatProgress.value = 0
   progressStatus.value = 'Initializing...'

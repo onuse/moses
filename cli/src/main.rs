@@ -1,7 +1,7 @@
 use clap::{Parser, Subcommand};
 use moses_core::{DeviceManager, FormatterRegistry, FormatterCategory};
 use moses_platform::PlatformDeviceManager;
-use moses_formatters::register_builtin_formatters;
+use moses_filesystems::register_builtin_formatters;
 use std::sync::Arc;
 
 #[derive(Parser)]
@@ -228,7 +228,7 @@ async fn main() -> anyhow::Result<()> {
             println!("\nUse 'moses format-info <name>' for detailed information about a formatter.");
         }
         Commands::FormatInfo { name } => {
-            if let Some(info) = moses_formatters::get_formatter_info(&registry, &name) {
+            if let Some(info) = moses_filesystems::get_formatter_info(&registry, &name) {
                 println!("{}", info);
             } else {
                 eprintln!("Formatter '{}' not found.", name);

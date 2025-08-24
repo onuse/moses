@@ -1,7 +1,7 @@
 // Standalone analyzer binary that can be elevated
 use std::env;
 use moses_core::Device;
-use moses_formatters::diagnostics::analyze_unknown_filesystem;
+use moses_filesystems::diagnostics::analyze_unknown_filesystem;
 
 fn main() {
     let args: Vec<String> = env::args().collect();

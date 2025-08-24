@@ -2015,7 +2015,7 @@ dependencies = [
  "libc",
  "log",
  "moses-core",
- "moses-formatters",
+ "moses-filesystems",
  "moses-platform",
  "once_cell",
  "serde",
@@ -2050,7 +2050,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "moses-formatters"
+name = "moses-filesystems"
 version = "0.1.0"
 dependencies = [
  "anyhow",
@@ -2080,7 +2080,7 @@ dependencies = [
  "async-trait",
  "log",
  "moses-core",
- "moses-formatters",
+ "moses-filesystems",
  "nix",
  "serde",
  "serde_json",

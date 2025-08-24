@@ -433,13 +433,6 @@ const executeFormat = async () => {
     return
   }
   
-  // Double confirmation for extra safety
-  const secondConfirm = prompt(`Type "FORMAT" to confirm formatting ${deviceName}:`)
-  if (secondConfirm !== 'FORMAT') {
-    showToast('info', 'Format cancelled - confirmation not matched')
-    return
-  }
-  
   isFormatting.value = true
   formatProgress.value = 0
   progressStatus.value = 'Preparing to format...'
