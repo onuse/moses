@@ -26,7 +26,7 @@ use std::sync::Mutex;
 use moses_filesystems::Ext4NativeFormatter;
 
 #[cfg(target_os = "linux")]
-use moses_filesystems::Ext4LinuxFormatter;
+use moses_filesystems::Ext4NativeFormatter;
 
 // Global log file path for this worker instance
 use std::sync::OnceLock;
@@ -669,7 +669,7 @@ async fn execute_format(device: Device, options: FormatOptions) -> Result<String
             
             #[cfg(target_os = "linux")]
             {
-                let formatter = Ext4LinuxFormatter;
+                let formatter = Ext4NativeFormatter;
                 formatter.validate_options(&options)
                     .await
                     .map_err(|e| format!("Invalid options: {}", e))?;

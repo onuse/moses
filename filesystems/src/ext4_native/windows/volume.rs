@@ -1,5 +1,7 @@
 // Windows volume management for safe device access
 
+use log::{debug, warn};
+
 #[cfg(target_os = "windows")]
 use winapi::{
     um::winnt::HANDLE,
@@ -47,7 +49,7 @@ impl VolumeManager {
         unsafe {
             let mut bytes_returned: DWORD = 0;
             
-            eprintln!("DEBUG: Attempting to lock volume...");
+            debug!("Attempting to lock volume...");
             
             // Try to lock the volume up to 3 times
             for attempt in 1..=3 {
@@ -63,20 +65,20 @@ impl VolumeManager {
                 );
                 
                 if result != FALSE {
-                    eprintln!("DEBUG: Volume locked successfully on attempt {}", attempt);
+                    debug!("Volume locked successfully on attempt {}", attempt);
                     self.locked = true;
                     return Ok(());
                 }
                 
                 let error = GetLastError();
-                eprintln!("DEBUG: Lock attempt {} failed with error {} (0x{:X})", attempt, error, error);
+                debug!("Lock attempt {} failed with error {} (0x{:X})", attempt, error, error);
                 
                 // Wait a bit before retrying
                 std::thread::sleep(std::time::Duration::from_millis(500));
             }
             
             // If we can't lock, continue anyway - some devices don't need locking
-            eprintln!("DEBUG: Could not lock volume, continuing anyway");
+            warn!("Could not lock volume, continuing anyway");
             Ok(())
         }
     }
@@ -86,7 +88,7 @@ impl VolumeManager {
         unsafe {
             let mut bytes_returned: DWORD = 0;
             
-            eprintln!("DEBUG: Attempting to dismount volume...");
+            debug!("Attempting to dismount volume...");
             
             let result = DeviceIoControl(
                 self.handle,
@@ -100,12 +102,12 @@ impl VolumeManager {
             );
             
             if result != FALSE {
-                eprintln!("DEBUG: Volume dismounted successfully");
+                debug!("Volume dismounted successfully");
                 self.dismounted = true;
                 Ok(())
             } else {
                 let error = GetLastError();
-                eprintln!("DEBUG: Dismount failed with error {} (0x{:X}), continuing", error, error);
+                debug!("Dismount failed with error {} (0x{:X}), continuing", error, error);
                 // Don't fail - device might not have mounted volumes
                 Ok(())
             }
@@ -117,7 +119,7 @@ impl VolumeManager {
         unsafe {
             let mut bytes_returned: DWORD = 0;
             
-            eprintln!("DEBUG: Attempting to delete drive layout...");
+            debug!("Attempting to delete drive layout...");
             
             let result = DeviceIoControl(
                 self.handle,
@@ -131,15 +133,15 @@ impl VolumeManager {
             );
             
             if result != FALSE {
-                eprintln!("DEBUG: Drive layout deleted successfully");
+                debug!("Drive layout deleted successfully");
                 Ok(())
             } else {
                 let error = GetLastError();
-                eprintln!("DEBUG: Delete drive layout failed with error {} (0x{:X})", error, error);
+                debug!("Delete drive layout failed with error {} (0x{:X})", error, error);
                 
                 // This might fail if there's no partition table, which is fine
                 if error == 1 || error == 87 {  // ERROR_INVALID_FUNCTION or ERROR_INVALID_PARAMETER
-                    eprintln!("DEBUG: Drive may not have a partition table, continuing");
+                    debug!("Drive may not have a partition table, continuing");
                     Ok(())
                 } else {
                     Err(format!("Failed to delete drive layout: error {}", error))

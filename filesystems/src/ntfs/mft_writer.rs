@@ -154,6 +154,105 @@ impl MftRecordBuilder {
         Ok(self)
     }
     
+    /// Add a non-resident DATA attribute with specified clusters
+    pub fn with_non_resident_data(mut self, start_cluster: u64, cluster_count: u64, bytes_per_cluster: u32) -> Result<Self, MosesError> {
+        // Create non-resident attribute header
+        let mut header = AttributeHeader {
+            type_code: ATTR_TYPE_DATA,
+            record_length: 0x48, // Will be updated
+            non_resident: 1, // Non-resident
+            name_length: 0,
+            name_offset: 0,
+            flags: 0,
+            attribute_id: self.attributes.len() as u16,
+        };
+        
+        // Non-resident specific data
+        let file_size = cluster_count * bytes_per_cluster as u64;
+        let mut data = Vec::new();
+        
+        // Starting VCN (Virtual Cluster Number) - always 0 for first extent
+        data.extend_from_slice(&0u64.to_le_bytes());
+        // Ending VCN (cluster_count - 1)
+        data.extend_from_slice(&(cluster_count - 1).to_le_bytes());
+        // Data runs offset (relative to attribute start)
+        data.extend_from_slice(&0x40u16.to_le_bytes());
+        // Compression unit size (0 = no compression)
+        data.extend_from_slice(&0u16.to_le_bytes());
+        // Padding
+        data.extend_from_slice(&0u32.to_le_bytes());
+        // Allocated size (in bytes)
+        data.extend_from_slice(&(cluster_count * bytes_per_cluster as u64).to_le_bytes());
+        // Real size (actual file size)
+        data.extend_from_slice(&file_size.to_le_bytes());
+        // Initialized size (how much has been written)
+        data.extend_from_slice(&file_size.to_le_bytes());
+        
+        // Data runs - encode the cluster allocation
+        let data_run = self.encode_data_run(cluster_count as i64, start_cluster as i64);
+        data.extend_from_slice(&data_run);
+        
+        // End marker for data runs
+        data.push(0x00);
+        
+        // Update header length
+        header.record_length = (0x40 + data_run.len() + 1 + 7) as u32 & !7; // Align to 8 bytes
+        
+        self.attributes.push((header, data));
+        self.used_size += header.record_length;
+        Ok(self)
+    }
+    
+    /// Encode a single data run
+    fn encode_data_run(&self, length: i64, lcn: i64) -> Vec<u8> {
+        let mut result = Vec::new();
+        
+        // Encode length
+        let length_bytes = self.encode_run_value(length);
+        let lcn_bytes = self.encode_run_value(lcn);
+        
+        // Header byte: high nibble = LCN size, low nibble = length size
+        let header = ((lcn_bytes.len() as u8) << 4) | (length_bytes.len() as u8);
+        result.push(header);
+        
+        // Length bytes (little-endian)
+        result.extend_from_slice(&length_bytes);
+        
+        // LCN bytes (little-endian)
+        result.extend_from_slice(&lcn_bytes);
+        
+        result
+    }
+    
+    /// Encode a run value (length or LCN) in minimal bytes
+    fn encode_run_value(&self, value: i64) -> Vec<u8> {
+        let bytes = value.to_le_bytes();
+        
+        // Find the minimal number of bytes needed
+        let mut len = 8;
+        if value >= 0 {
+            // For positive values, find last non-zero byte
+            while len > 1 && bytes[len - 1] == 0 {
+                len -= 1;
+            }
+            // If high bit is set, we need one more byte to indicate positive
+            if len < 8 && bytes[len - 1] & 0x80 != 0 {
+                len += 1;
+            }
+        } else {
+            // For negative values, find last non-0xFF byte
+            while len > 1 && bytes[len - 1] == 0xFF {
+                len -= 1;
+            }
+            // If high bit is clear, we need one more byte to indicate negative
+            if len < 8 && bytes[len - 1] & 0x80 == 0 {
+                len += 1;
+            }
+        }
+        
+        bytes[..len].to_vec()
+    }
+    
     /// Add an index root attribute (for directories)
     pub fn with_index_root(mut self, index_type: u32) -> Result<Self, MosesError> {
         // Basic index root structure

@@ -11,6 +11,7 @@ pub mod upcase;
 pub mod validator;
 pub mod directory_entries;
 pub mod file_operations;
+pub mod ops;
 
 // Use the native formatter as default
 pub use formatter_native::ExFatNativeFormatter as ExFatFormatter;
@@ -18,6 +19,7 @@ pub use formatter_native::ExFatNativeFormatter as ExFatFormatter;
 pub use formatter::ExFatFormatter as ExFatSystemFormatter;
 // Use the aligned reader that leverages our common abstraction
 pub use reader_aligned::ExFatReaderAligned as ExFatReader;
+pub use ops::ExFatOps;
 
 use crate::detection::FilesystemDetector;
 

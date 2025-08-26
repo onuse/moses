@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+    <Fragment>
+        <!-- WinFsp Detection and Installation -->
+        <Property Id="WINFSPINSTALLED">
+            <RegistrySearch Id="WinFspRegistry" 
+                            Root="HKLM" 
+                            Key="SOFTWARE\WOW6432Node\WinFsp" 
+                            Type="raw" />
+        </Property>
+
+        <Property Id="WINFSP_INSTALLER_URL" Value="https://github.com/winfsp/winfsp/releases/download/v2.0/winfsp-2.0.23075.msi" />
+        
+        <ComponentGroup Id="WinFspComponents">
+            <!-- Component to check and optionally install WinFsp -->
+            <Component Id="WinFspCheck" Guid="A1B2C3D4-E5F6-7890-ABCD-EF1234567890" Directory="TARGETDIR">
+                <Condition>NOT WINFSPINSTALLED</Condition>
+                <RegistryValue Root="HKCU" 
+                               Key="Software\Moses" 
+                               Name="WinFspPrompted" 
+                               Type="integer" 
+                               Value="1" 
+                               KeyPath="yes"/>
+            </Component>
+        </ComponentGroup>
+
+        <!-- Custom Actions for WinFsp -->
+        <CustomAction Id="DownloadWinFsp" 
+                      Execute="deferred" 
+                      Impersonate="no" 
+                      Return="check"
+                      Directory="TARGETDIR"
+                      ExeCommand="powershell.exe -ExecutionPolicy Bypass -Command &quot;
+                        $url = 'https://github.com/winfsp/winfsp/releases/download/v2.0/winfsp-2.0.23075.msi';
+                        $output = '$env:TEMP\winfsp-installer.msi';
+                        [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12;
+                        Invoke-WebRequest -Uri $url -OutFile $output;
+                        Start-Process msiexec.exe -ArgumentList '/i', $output, '/qn' -Wait;
+                        Remove-Item $output -Force
+                      &quot;" />
+
+        <!-- Dialog to ask about WinFsp installation -->
+        <UI>
+            <Dialog Id="WinFspDialog" Width="370" Height="270" Title="Moses Setup - WinFsp">
+                <Control Id="Title" Type="Text" X="15" Y="6" Width="300" Height="15" Transparent="yes" NoPrefix="yes">
+                    <Text>{\WixUI_Font_Title}WinFsp Required for Mounting</Text>
+                </Control>
+                
+                <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="40" Transparent="yes" NoPrefix="yes">
+                    <Text>WinFsp is required to mount filesystems as drives. Would you like to install it now?</Text>
+                </Control>
+                
+                <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no" Text="WixUI_Bmp_Banner" />
+                <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+                
+                <Control Id="InfoText" Type="Text" X="25" Y="70" Width="320" Height="60">
+                    <Text>WinFsp (Windows File System Proxy) is a free, open-source alternative to FUSE for Windows. It allows Moses to mount ext4, NTFS, and other filesystems as Windows drives.
+
+Without WinFsp:
+• You can still format drives
+• You cannot mount filesystems
+
+WinFsp is completely free and safe.</Text>
+                </Control>
+                
+                <Control Id="Install" Type="PushButton" X="180" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Install">
+                    <Publish Event="DoAction" Value="DownloadWinFsp">1</Publish>
+                    <Publish Event="NewDialog" Value="ProgressDlg">1</Publish>
+                </Control>
+                
+                <Control Id="Skip" Type="PushButton" X="236" Y="243" Width="56" Height="17" Text="&amp;Skip">
+                    <Publish Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+                </Control>
+                
+                <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+                    <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+                </Control>
+                
+                <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+            </Dialog>
+        </UI>
+        
+        <!-- Add to installation sequence -->
+        <InstallExecuteSequence>
+            <Custom Action="DownloadWinFsp" After="InstallFiles">
+                NOT WINFSPINSTALLED AND NOT REMOVE
+            </Custom>
+        </InstallExecuteSequence>
+    </Fragment>
+</Wix>

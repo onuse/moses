@@ -12,7 +12,7 @@ mod filesystem_cache;
 mod worker_server;
 
 #[cfg(target_os = "linux")]
-use moses_filesystems::Ext4LinuxFormatter;
+use moses_filesystems::Ext4NativeFormatter;
 
 #[cfg(target_os = "windows")]
 use moses_filesystems::Ext4NativeFormatter;
@@ -142,7 +142,7 @@ async fn simulate_format(
         "ext4" => {
             #[cfg(target_os = "linux")]
             {
-                let formatter = Ext4LinuxFormatter;
+                let formatter = Ext4NativeFormatter;
                 formatter.dry_run(&device, &options)
                     .await
                     .map_err(|e| format!("Simulation failed: {}", e))
@@ -282,7 +282,7 @@ async fn execute_format(
         "ext4" => {
             #[cfg(target_os = "linux")]
             {
-                let formatter = Ext4LinuxFormatter;
+                let formatter = Ext4NativeFormatter;
                 
                 // Validate options
                 formatter.validate_options(&options)

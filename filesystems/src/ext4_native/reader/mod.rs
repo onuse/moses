@@ -516,13 +516,28 @@ impl ExtReader {
             .trim()
             .to_string();
         
+        // Calculate 64-bit block counts
+        let block_count = self.superblock.s_blocks_count_lo as u64 
+            | ((self.superblock.s_blocks_count_hi as u64) << 32);
+        let free_blocks = self.superblock.s_free_blocks_count_lo as u64 
+            | ((self.superblock.s_free_blocks_count_hi as u64) << 32);
+        let reserved_blocks = self.superblock.s_r_blocks_count_lo as u64 
+            | ((self.superblock.s_r_blocks_count_hi as u64) << 32);
+        
         ExtInfo {
-            filesystem_type: format!("{:?}", self.version),
+            filesystem_type: match self.version {
+                ExtVersion::Ext2 => "ext2".to_string(),
+                ExtVersion::Ext3 => "ext3".to_string(),
+                ExtVersion::Ext4 => "ext4".to_string(),
+            },
             label: if label.is_empty() { None } else { Some(label) },
             uuid: self.format_uuid(),
-            block_count: self.superblock.s_blocks_count_lo as u64,
-            free_blocks: self.superblock.s_free_blocks_count_lo as u64,
+            block_count,
+            free_blocks,
             block_size: self.block_size,
+            total_inodes: self.superblock.s_inodes_count,
+            free_inodes: self.superblock.s_free_inodes_count,
+            reserved_blocks,
         }
     }
     
@@ -553,6 +568,9 @@ pub struct ExtInfo {
     pub block_count: u64,
     pub free_blocks: u64,
     pub block_size: u32,
+    pub total_inodes: u32,
+    pub free_inodes: u32,
+    pub reserved_blocks: u64,
 }
 
 #[cfg(test)]

@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Moses Drive Formatter",
+        "title": "Moses - Universal Filesystem Bridge",
         "width": 1100,
         "height": 700,
         "resizable": true,
@@ -33,8 +33,38 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
+    "resources": [],
     "windows": {
-      "wix": null
-    }
+      "certificateThumbprint": null,
+      "digestAlgorithm": "sha256",
+      "timestampUrl": "",
+      "webviewInstallMode": {
+        "type": "embedBootstrapper"
+      },
+      "wix": null,
+      "nsis": null
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false,
+        "files": {}
+      },
+      "deb": {
+        "depends": [],
+        "files": {}
+      },
+      "rpm": {
+        "epoch": 0,
+        "files": {},
+        "release": "1"
+      }
+    },
+    "externalBin": [],
+    "publisher": "Moses Team",
+    "copyright": "© 2024 Moses Contributors",
+    "category": "Utility",
+    "shortDescription": "Universal filesystem bridge and formatter",
+    "longDescription": "Moses allows you to format drives with any filesystem and mount any filesystem on any platform. Read ext4 on Windows, NTFS on Linux, or even obscure filesystems from the 1980s.",
+    "homepage": "https://github.com/moses-project/moses"
   }
 }

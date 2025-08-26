@@ -240,7 +240,7 @@ impl<'a> Iterator for AttributeIterator<'a> {
 /// MFT reader - reads MFT records from disk
 pub struct MftReader {
     reader: AlignedDeviceReader,
-    mft_offset: u64,
+    pub(crate) mft_offset: u64,
     record_size: u32,
 }
 

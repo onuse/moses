@@ -62,31 +62,31 @@ struct TransactionEntry {
 /// NTFS Writer with safety checks and transaction support
 pub struct NtfsWriter {
     _device: Device,
-    boot_sector: NtfsBootSector,
-    reader: AlignedDeviceReader,
-    writer: std::fs::File,  // Separate handle for writing
-    mft_reader: MftReader,
-    bytes_per_cluster: u32,
-    sectors_per_cluster: u8,
+    pub(crate) boot_sector: NtfsBootSector,
+    pub(crate) reader: AlignedDeviceReader,
+    pub(crate) writer: std::fs::File,  // Separate handle for writing
+    pub(crate) mft_reader: MftReader,
+    pub(crate) bytes_per_cluster: u32,
+    pub(crate) sectors_per_cluster: u8,
     
     // Configuration
-    config: NtfsWriteConfig,
+    pub(crate) config: NtfsWriteConfig,
     
     // Transaction management
     transaction_log: Vec<TransactionEntry>,
     transaction_active: bool,
     
     // Cached data structures
-    mft_cache: HashMap<u64, MftRecord>,
-    mft_data_runs: Option<Vec<DataRun>>,
+    pub(crate) mft_cache: HashMap<u64, MftRecord>,
+    pub(crate) mft_data_runs: Option<Vec<DataRun>>,
     
     // Bitmap management
-    mft_bitmap: Option<Vec<u8>>,
-    volume_bitmap: Option<Vec<u8>>,
+    pub(crate) mft_bitmap: Option<Vec<u8>>,
+    pub(crate) volume_bitmap: Option<Vec<u8>>,
     
     // Safety tracking
-    modified_mft_records: HashSet<u64>,
-    modified_clusters: HashSet<u64>,
+    pub(crate) modified_mft_records: HashSet<u64>,
+    pub(crate) modified_clusters: HashSet<u64>,
 }
 
 impl NtfsWriter {
@@ -268,20 +268,14 @@ impl NtfsWriter {
     }
     
     /// Read an MFT record by number
-    fn read_mft_record(&mut self, record_num: u64) -> Result<MftRecord, MosesError> {
+    pub fn read_mft_record(&mut self, record_num: u64) -> Result<MftRecord, MosesError> {
         // Check cache first
         if let Some(cached) = self.mft_cache.get(&record_num) {
             return Ok(cached.clone());
         }
         
-        // Read from disk
-        let record = if record_num == 0 {
-            self.mft_reader.read_mft_record()?
-        } else {
-            // TODO: Implement read_mft_record_by_number in MftReader
-            // For now, return an error
-            return Err(MosesError::Other("Reading arbitrary MFT records not yet implemented".to_string()));
-        };
+        // Read from disk using the read_record method
+        let record = self.mft_reader.read_record(record_num)?;
         
         // Cache it
         self.mft_cache.insert(record_num, record.clone());

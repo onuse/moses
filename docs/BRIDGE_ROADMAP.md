@@ -1,5 +1,42 @@
 # Moses Bridge Implementation Roadmap
 
+## ✅ COMPLETED: Phase 0 - Foundation Infrastructure
+
+### What we've accomplished:
+1. **Created FilesystemOps trait** (`filesystems/src/ops.rs`)
+   - Sync operations matching WinFsp/FUSE requirements
+   - Read-only operations as baseline
+   - Optional write operations for future
+
+2. **Implemented Ext4Ops wrapper** (`filesystems/src/ext4_native/ops.rs`)
+   - Wraps existing ExtReader
+   - Implements FilesystemOps trait
+   - Supports ext2/ext3/ext4 auto-detection
+
+3. **Created FilesystemOpsRegistry**
+   - Dynamic filesystem registration
+   - Auto-detection support
+   - Factory pattern for creating ops
+
+4. **Added CLI mount command**
+   - `moses mount E: M:` syntax implemented
+   - Auto-detection of filesystem type
+   - Preview mode showing what's possible
+
+5. **Integrated with existing codebase**
+   - Seamlessly merged with existing registry
+   - Reused existing readers
+   - No breaking changes
+
+### Current Status:
+- ✅ Trait-based architecture established
+- ✅ Ext4 filesystem support ready
+- ✅ CLI infrastructure in place
+- ✅ Auto-detection framework working
+- 🔄 Ready for WinFsp integration
+
+---
+
 ## Vision
 Transform Moses from a formatting tool into a universal filesystem translator that makes filesystem incompatibility obsolete.
 
@@ -32,11 +69,11 @@ Not filesystem conversion, but **universal filesystem access**. Moses lets any O
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Phase 1: Core Filesystem Trait System
+## Phase 1: Core Filesystem Trait System ✅ COMPLETED
 **Goal**: Establish the foundational trait architecture that all filesystems will implement.
 
-### 1.1 Define Core Traits (SYNC - Matching Existing Code!)
-Create `moses-core/src/filesystem_ops.rs`:
+### 1.1 Define Core Traits ✅ DONE
+Created `filesystems/src/ops.rs`:
 
 ```rust
 /// Unified filesystem operations trait - SYNC to match our existing readers

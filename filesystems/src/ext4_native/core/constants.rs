@@ -6,6 +6,13 @@ pub const EXT4_SUPER_MAGIC: u16 = 0xEF53;
 pub const EXT4_EXTENT_MAGIC: u16 = 0xF30A;
 pub const JBD2_MAGIC_NUMBER: u32 = 0xC03B3998;
 
+// JBD2 Journal block types
+pub const JBD2_DESCRIPTOR_BLOCK: u32 = 1;
+pub const JBD2_COMMIT_BLOCK: u32 = 2;
+pub const JBD2_SUPERBLOCK_V1: u32 = 3;
+pub const JBD2_SUPERBLOCK_V2: u32 = 4;
+pub const JBD2_REVOKE_BLOCK: u32 = 5;
+
 // Block sizes
 pub const EXT4_MIN_BLOCK_SIZE: u32 = 1024;
 pub const EXT4_MAX_BLOCK_SIZE: u32 = 65536;

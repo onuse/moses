@@ -273,14 +273,20 @@ fn write_system_mft_records(
 }
 
 /// Create MFT record 0 ($MFT)
-fn create_mft_record_0(record_size: u32, _mft_cluster: u64, _bytes_per_cluster: u32) -> Result<Vec<u8>, MosesError> {
+fn create_mft_record_0(record_size: u32, mft_cluster: u64, bytes_per_cluster: u32) -> Result<Vec<u8>, MosesError> {
     let current_time = windows_time_now();
+    
+    // Calculate MFT size - typically starts with 16 records minimum
+    let initial_mft_records = 16u64;
+    let mft_size = initial_mft_records * record_size as u64;
+    let mft_clusters = (mft_size + bytes_per_cluster as u64 - 1) / bytes_per_cluster as u64;
     
     MftRecordBuilder::new(0, record_size)
         .as_file()
         .with_standard_info(current_time, current_time, current_time, 0x06)? // System + Hidden
-        .with_file_name(5, "$MFT", 3, current_time, current_time, current_time, 0, 0, 0x06)?
-        .with_empty_data()? // The MFT data will be non-resident
+        .with_file_name(5, "$MFT", 3, current_time, current_time, current_time, 
+                       mft_size, mft_size, 0x06)?
+        .with_non_resident_data(mft_cluster, mft_clusters, bytes_per_cluster)? // Non-resident DATA attribute
         .build()
 }
 
@@ -497,6 +503,78 @@ impl NtfsFormatter {
     /// Create a new NTFS formatter instance
     pub fn new() -> Self {
         Self
+    }
+    
+    /// Synchronous format method for testing
+    pub fn format(&mut self, device: &Device, label: &str) -> Result<(), MosesError> {
+        // Delegate to the same implementation as the async version
+        // but synchronously
+        self.format_impl(device, label)
+    }
+    
+    fn format_impl(&mut self, device: &Device, label: &str) -> Result<(), MosesError> {
+        // Open the device file
+        let mut file = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&device.id)?;
+        
+        let options = FormatOptions {
+            filesystem_type: "ntfs".to_string(),
+            label: Some(label.to_string()),
+            cluster_size: None,
+            quick_format: false,
+            enable_compression: false,
+            verify_after_format: false,
+            dry_run: false,
+            force: false,
+            additional_options: std::collections::HashMap::new(),
+        };
+        
+        // Reuse the same formatting logic
+        self.format_device(&mut file, device, &options)
+    }
+    
+    fn format_device(&self, file: &mut std::fs::File, device: &Device, options: &FormatOptions) -> Result<(), MosesError> {
+        info!("Formatting {} as NTFS", device.id);
+        
+        // Default parameters
+        let bytes_per_sector = 512u16;
+        let total_sectors = device.size / bytes_per_sector as u64;
+        let sectors_per_cluster = calculate_sectors_per_cluster(device.size);
+        let bytes_per_cluster = bytes_per_sector as u32 * sectors_per_cluster as u32;
+        let total_clusters = total_sectors / sectors_per_cluster as u64;
+        
+        // MFT parameters
+        let mft_record_size = 1024u32; // Standard size
+        let mft_clusters = (total_clusters / 8).max(8192).min(65536); // 12.5% of disk, min 32MB, max 256MB
+        let _mft_zone_clusters = mft_clusters * 4; // Reserve 4x MFT size for growth
+        let mft_start_cluster = 4; // Start MFT at cluster 4 (after boot sector)
+        
+        info!("NTFS parameters: {} sectors, {} bytes/cluster, MFT at cluster {}",
+              total_sectors, bytes_per_cluster, mft_start_cluster);
+        
+        // Step 1: Write boot sector
+        write_boot_sector(file, device, options, 
+                         bytes_per_sector, sectors_per_cluster,
+                         total_sectors, mft_start_cluster)?;
+        
+        // Step 2: Create and write system MFT records
+        write_system_mft_records(file, bytes_per_cluster, 
+                                mft_start_cluster, mft_record_size,
+                                total_clusters)?;
+        
+        // Step 3: Initialize bitmaps
+        initialize_bitmaps(file, bytes_per_cluster, total_clusters, mft_clusters)?;
+        
+        // Step 4: Write backup boot sector
+        write_backup_boot_sector(file, total_sectors, bytes_per_sector)?;
+        
+        // Flush all writes
+        file.flush()?;
+        
+        info!("NTFS format completed successfully");
+        Ok(())
     }
 }
 

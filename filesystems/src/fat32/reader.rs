@@ -488,7 +488,7 @@ impl FilesystemReader for Fat32Reader {
         }
         
         // Read the directory
-        let mut entries = self.read_directory_cluster(current_cluster)?;
+        let entries = self.read_directory_cluster(current_cluster)?;
         
         // Entries are ready - no path field to update
         

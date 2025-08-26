@@ -16,3 +16,8 @@ moses-filesystems = { path = "../filesystems" }
 clap = { workspace = true }
 tokio = { workspace = true }
 anyhow = { workspace = true }
+
+[features]
+default = []
+mount-windows = ["moses-filesystems/mount", "moses-filesystems/mount-windows"]
+mount-unix = ["moses-filesystems/mount", "moses-filesystems/mount-unix"]

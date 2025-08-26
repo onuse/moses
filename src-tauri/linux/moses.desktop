@@ -1,0 +1,11 @@
+[Desktop Entry]
+Name=Moses
+Comment=Universal Filesystem Bridge
+Exec=moses
+Icon=moses
+Terminal=false
+Type=Application
+Categories=System;Utility;FileTools;
+Keywords=filesystem;mount;format;ext4;ntfs;fat32;drive;partition;
+StartupNotify=true
+MimeType=application/x-moses;

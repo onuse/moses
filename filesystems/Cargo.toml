@@ -8,6 +8,9 @@ license.workspace = true
 [features]
 default = []
 legacy = []  # Enable legacy formatter implementations (not recommended)
+mount-windows = ["winfsp", "winfsp-sys"]  # Windows mounting support
+mount-unix = ["fuser"]  # Unix mounting support
+mount = []  # Generic mount feature
 
 [dependencies]
 moses-core = { path = "../core" }
@@ -28,9 +31,12 @@ chrono = "0.4"
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winapi = { version = "0.3", features = ["fileapi", "winnt", "handleapi", "ioapiset", "winioctl", "errhandlingapi", "winbase", "minwindef", "securitybaseapi", "processthreadsapi"] }
+winfsp = { version = "0.11", optional = true }
+winfsp-sys = { version = "0.2", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 nix = { version = "0.27", features = ["user"] }
+fuser = { version = "0.14", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

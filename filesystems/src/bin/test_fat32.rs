@@ -69,6 +69,8 @@ fn format_fat32(device_path: &str, volume_label: Option<&str>) -> Result<(), Box
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: std::collections::HashMap::new(),
     };
     

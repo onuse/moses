@@ -79,6 +79,30 @@ impl Bitmap {
         free
     }
     
+    /// Find contiguous clear bits
+    pub fn find_contiguous_clear(&self, start: u32, count: u32) -> Option<u32> {
+        let total_bits = self.size_bits as usize;
+        
+        for offset in 0..total_bits {
+            let bit = (start as usize + offset) % total_bits;
+            let mut found = true;
+            
+            for i in 0..count as usize {
+                let check_bit = (bit + i) % total_bits;
+                if self.is_set(check_bit as u32) {
+                    found = false;
+                    break;
+                }
+            }
+            
+            if found {
+                return Some(bit as u32);
+            }
+        }
+        
+        None
+    }
+    
     /// Get bitmap data as bytes
     pub fn as_bytes(&self) -> &[u8] {
         &self.data

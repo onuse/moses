@@ -25,6 +25,10 @@ pub enum Ext4Error {
     /// Windows-specific error
     #[cfg(target_os = "windows")]
     WindowsError(String),
+    /// Invalid block number
+    InvalidBlock(BlockNumber),
+    /// Generic I/O error with message
+    IoError(String),
 }
 
 impl fmt::Display for Ext4Error {
@@ -43,6 +47,8 @@ impl fmt::Display for Ext4Error {
             Ext4Error::UnsupportedFeature(msg) => write!(f, "Unsupported feature: {}", msg),
             #[cfg(target_os = "windows")]
             Ext4Error::WindowsError(msg) => write!(f, "Windows error: {}", msg),
+            Ext4Error::InvalidBlock(block) => write!(f, "Invalid block number: {}", block),
+            Ext4Error::IoError(msg) => write!(f, "I/O error: {}", msg),
         }
     }
 }

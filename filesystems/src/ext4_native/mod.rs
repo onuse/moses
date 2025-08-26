@@ -4,6 +4,8 @@
 pub mod core;
 pub mod reader;
 pub mod validation;
+pub mod ops;
+pub mod writer;
 
 #[cfg(target_os = "windows")]
 pub mod windows;
@@ -15,6 +17,8 @@ mod tests;
 pub use self::core::formatter::Ext4NativeFormatter;
 // Re-export reader for filesystem browsing
 pub use self::reader::ExtReader;
+// Re-export filesystem operations
+pub use self::ops::{Ext4Ops, ExtDetector as ExtOpsDetector};
 
 use crate::detection::FilesystemDetector;
 

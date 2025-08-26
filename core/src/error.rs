@@ -53,6 +53,9 @@ pub enum MosesError {
     #[error("External command failed: {0}")]
     External(String),
     
+    #[error("Not supported: {0}")]
+    NotSupported(String),
+    
     #[error("Other error: {0}")]
     Other(String),
 }
