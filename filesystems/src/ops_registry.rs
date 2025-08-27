@@ -8,7 +8,7 @@ use moses_core::{Device, MosesError};
 pub fn register_all_filesystems(registry: &mut FilesystemOpsRegistry, enable_write: bool) {
     use crate::ext4_native::{Ext4Ops, ExtOpsDetector};
     use crate::ntfs::{NtfsOps, NtfsRwOps};
-    use crate::fat32::Fat32Ops;
+    // use crate::fat32::Fat32Ops;
     use crate::fat16::Fat16Ops;
     use crate::exfat::ExFatOps;
     
@@ -49,12 +49,12 @@ pub fn register_all_filesystems(registry: &mut FilesystemOpsRegistry, enable_wri
         });
     }
     
-    // Register FAT32 operations (read-only)
-    registry.register_ops("fat32", |device| {
-        let mut ops = Fat32Ops::new();
-        ops.init(device)?;
-        Ok(Box::new(ops))
-    });
+//     // Register FAT32 operations (read-only)
+//     registry.register_ops("fat32", |device| {
+//         // let mut ops = Fat32Ops::new();
+//         ops.init(device)?;
+//         Ok(Box::new(ops))
+//     });
     
     // Register FAT16 operations (read-only)
     registry.register_ops("fat16", |device| {

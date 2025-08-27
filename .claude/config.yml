@@ -1,0 +1,30 @@
+# Claude Tools Configuration
+# This file tells Claude to use custom tools instead of broken defaults
+
+tools:
+  override_defaults: true
+  
+  # Use this instead of default Edit tool
+  edit:
+    command: "python3 .claude/claude_tools.py edit"
+    use_when: "Edit tool fails with 'modification' error"
+    
+  # Use for refactoring
+  rename:
+    command: "python3 .claude/claude_tools.py rename"
+    use_for: ["refactoring", "symbol renaming", "variable renaming"]
+    
+  # Use for file operations  
+  move:
+    command: "python3 .claude/claude_tools.py move"
+    use_for: ["file reorganization", "moving files", "updating includes"]
+
+critical_reminders:
+  - "Edit tool is BROKEN in WSL - use claude_tools.py instead"
+  - "If you see 'File has been modified' error, use: python3 .claude/claude_tools.py edit"
+  - "This config file persists across context resets - always check it exists"
+
+quick_commands:
+  edit_file: 'python3 .claude/claude_tools.py edit FILE "OLD" "NEW"'
+  rename_symbol: 'python3 .claude/claude_tools.py rename OLD NEW --execute'
+  move_file: 'python3 .claude/claude_tools.py move FROM TO'

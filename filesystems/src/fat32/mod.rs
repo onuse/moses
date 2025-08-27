@@ -3,8 +3,11 @@
 pub mod formatter;
 pub mod formatter_native;
 pub mod reader;
-pub mod validator;
-pub mod ops;
+pub mod writer;
+// pub mod path_resolver;
+// pub mod file_ops;
+// pub mod validator;
+// pub mod ops;
 
 // Use the native formatter as default (like FAT16)
 pub use formatter_native::Fat32NativeFormatter as Fat32Formatter;
@@ -12,7 +15,7 @@ pub use formatter_native::Fat32NativeFormatter as Fat32Formatter;
 pub use formatter::Fat32Formatter as Fat32SystemFormatter;
 // Export the reader and ops
 pub use reader::Fat32Reader;
-pub use ops::Fat32Ops;
+// pub use ops::Fat32Ops;
 
 use crate::detection::FilesystemDetector;
 

@@ -38,7 +38,7 @@ pub use ext_family::{Ext2Formatter, Ext3Formatter};
 // NTFS implementation - read and format support
 pub use ntfs::{NtfsDetector, NtfsReader, NtfsFormatter, NtfsOps, NtfsRwOps};
 pub use fat16::{Fat16Formatter, Fat16Reader, Fat16Ops};
-pub use fat32::{Fat32Formatter, Fat32Reader, Fat32Ops};
+pub use fat32::{Fat32Formatter, Fat32Reader};
 pub use exfat::{ExFatFormatter, ExFatReader, ExFatOps};
 
 // Deprecated - using Ext4NativeFormatter instead

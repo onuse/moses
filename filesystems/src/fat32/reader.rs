@@ -198,7 +198,7 @@ impl Fat32Reader {
     }
     
     /// Get FAT entry for a cluster
-    fn get_fat_entry(&mut self, cluster: u32) -> Result<u32, MosesError> {
+    pub fn get_fat_entry(&mut self, cluster: u32) -> Result<u32, MosesError> {
         // Check cache first
         if let Some(&next) = self.fat_cache.get(&cluster) {
             return Ok(next);
@@ -229,7 +229,7 @@ impl Fat32Reader {
     }
     
     /// Follow cluster chain to get all clusters for a file/directory
-    fn get_cluster_chain(&mut self, start_cluster: u32) -> Result<Vec<u32>, MosesError> {
+    pub fn get_cluster_chain(&mut self, start_cluster: u32) -> Result<Vec<u32>, MosesError> {
         let mut chain = Vec::new();
         let mut current = start_cluster;
         let mut iterations = 0;
@@ -249,7 +249,7 @@ impl Fat32Reader {
     }
     
     /// Read data from a cluster
-    fn read_cluster(&mut self, cluster: u32) -> Result<Vec<u8>, MosesError> {
+    pub fn read_cluster(&mut self, cluster: u32) -> Result<Vec<u8>, MosesError> {
         if cluster < 2 || cluster >= self.total_clusters + 2 {
             return Err(MosesError::Other(format!("Invalid cluster number: {}", cluster)));
         }
