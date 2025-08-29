@@ -3,6 +3,8 @@ use crate::ops::{FilesystemOps, FileAttributes, DirectoryEntry, FilesystemInfo a
 use crate::device_reader::FilesystemReader;
 use crate::ops_helpers::convert_filesystem_info;
 use super::reader::Fat16Reader;
+use super::writer::Fat16Writer;
+use super::file_ops::Fat16FileOps;
 use moses_core::{Device, MosesError};
 use std::path::Path;
 use std::sync::Mutex;
@@ -10,6 +12,8 @@ use std::sync::Mutex;
 /// FAT16 filesystem operations wrapper
 pub struct Fat16Ops {
     reader: Mutex<Option<Fat16Reader>>,
+    writer: Mutex<Option<Fat16Writer>>,
+    file_ops: Mutex<Option<Fat16FileOps>>,
     device: Option<Device>,
 }
 
@@ -17,6 +21,8 @@ impl Fat16Ops {
     pub fn new() -> Self {
         Fat16Ops {
             reader: Mutex::new(None),
+            writer: Mutex::new(None),
+            file_ops: Mutex::new(None),
             device: None,
         }
     }
@@ -28,8 +34,18 @@ impl FilesystemOps for Fat16Ops {
     }
     
     fn init(&mut self, device: &Device) -> Result<(), MosesError> {
+        // Initialize reader and writer
         let reader = Fat16Reader::new(device.clone())?;
+        let writer = Fat16Writer::new(device.clone())?;
+        
+        // Store them temporarily
         *self.reader.lock().unwrap() = Some(reader);
+        *self.writer.lock().unwrap() = Some(writer);
+        
+        // Now create file_ops with both reader and writer
+        // This requires taking them out and putting them back
+        // For now, we'll keep them separate and create file_ops on demand
+        
         self.device = Some(device.clone());
         Ok(())
     }

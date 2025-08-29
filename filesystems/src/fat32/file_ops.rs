@@ -2,7 +2,7 @@
 // High-level file operations using writer and path resolver
 
 use moses_core::MosesError;
-use crate::fat32::writer::{Fat32Writer, ATTR_ARCHIVE, ATTR_DIRECTORY};
+use crate::fat32::writer::Fat32Writer;
 use crate::fat32::path_resolver::{Fat32PathResolver, ResolvedPath, DirectoryEntry};
 use crate::fat32::reader::{Fat32Reader, Fat32DirEntry, LongNameEntry};
 use std::path::{Path, PathBuf};
@@ -16,6 +16,8 @@ const ATTR_READ_ONLY: u8 = 0x01;
 const ATTR_HIDDEN: u8 = 0x02;
 const ATTR_SYSTEM: u8 = 0x04;
 const ATTR_VOLUME_ID: u8 = 0x08;
+const ATTR_DIRECTORY: u8 = 0x10;
+const ATTR_ARCHIVE: u8 = 0x20;
 const ATTR_LONG_NAME: u8 = ATTR_READ_ONLY | ATTR_HIDDEN | ATTR_SYSTEM | ATTR_VOLUME_ID;
 
 /// High-level FAT32 file operations
@@ -327,7 +329,7 @@ impl Fat32FileOps {
     
     /// Create . and .. entries for a new directory
     fn create_dot_entries(&mut self, dir_cluster: u32, parent_cluster: u32) -> MosesResult<()> {
-        let mut data = vec![0u8; self.writer.bytes_per_cluster as usize];
+        let mut data = vec![0u8; self.writer.get_bytes_per_cluster() as usize];
         
         // Create . entry
         let mut dot_entry = Fat32Writer::create_directory_entry(".", ATTR_DIRECTORY, dir_cluster, 0);
@@ -438,6 +440,9 @@ impl Fat32FileOps {
         };
         let total_entries = 1 + lfn_entries;
         
+        // Save last cluster before iteration
+        let last_cluster = *clusters.last().ok_or_else(|| MosesError::Other("Empty cluster chain".into()))?;
+
         // Find free space in directory
         for cluster in clusters {
             let mut data = self.writer.read_cluster(cluster)?;
@@ -482,11 +487,10 @@ impl Fat32FileOps {
         
         // No space found - extend directory
         let new_cluster = self.writer.allocate_cluster()?;
-        let last_cluster = *clusters.last().unwrap();
         self.writer.write_fat_entry(last_cluster, new_cluster)?;
         
         // Write to new cluster
-        let mut data = vec![0u8; self.writer.bytes_per_cluster as usize];
+        let mut data = vec![0u8; self.writer.get_bytes_per_cluster() as usize];
         
         // Write LFN entries if needed
         if let Some(name) = long_name {

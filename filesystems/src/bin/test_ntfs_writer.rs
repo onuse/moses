@@ -1,11 +1,11 @@
 // Simple test program for NTFS writer functionality
 // Creates a test NTFS volume and attempts to create a file
 
-use moses_filesystems::ntfs::{NtfsFormatter, NtfsWriter, NtfsReader};
-use moses_filesystems::ntfs::writer::NtfsWriteConfig;
-use moses_core::Device;
+use moses_filesystems::ntfs::{NtfsFormatter, NtfsWriter, NtfsReader, NtfsWriteConfig};
+use moses_core::{Device, DeviceType};
 use std::fs::File;
 use std::io::Write;
+use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -27,7 +27,16 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Step 1: Format as NTFS
     println!("\n1. Formatting as NTFS...");
     let mut formatter = NtfsFormatter::new();
-    let device = Device::new(&file_path)?;
+    let device = Device {
+        id: file_path.clone(),
+        name: "Test NTFS Volume".to_string(),
+        size: volume_size,
+        device_type: DeviceType::USB,
+        mount_points: vec![],
+        is_removable: true,
+        is_system: false,
+        filesystem: None,
+    };
     formatter.format(&device, "TestVolume")?;
     println!("   ✓ Format complete");
     
@@ -36,7 +45,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let reader = NtfsReader::new(device.clone())?;
     let info = reader.filesystem_info()?;
     println!("   Volume Label: {}", info.label.unwrap_or_else(|| "None".to_string()));
-    println!("   Total Space: {} MB", info.total_space / 1024 / 1024);
+    println!("   Total Space: {} MB", info.total_bytes / 1024 / 1024);
     println!("   ✓ Volume readable");
     
     // Step 3: List root directory (should be empty)

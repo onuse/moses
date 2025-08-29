@@ -5,6 +5,7 @@ pub mod formatter_native;
 pub mod reader;
 pub mod reader_improved;
 pub mod reader_aligned;
+pub mod writer;
 pub mod structures;
 pub mod bitmap;
 pub mod upcase;
@@ -19,6 +20,7 @@ pub use formatter_native::ExFatNativeFormatter as ExFatFormatter;
 pub use formatter::ExFatFormatter as ExFatSystemFormatter;
 // Use the aligned reader that leverages our common abstraction
 pub use reader_aligned::ExFatReaderAligned as ExFatReader;
+pub use writer::ExFatWriter;
 pub use ops::ExFatOps;
 
 use crate::detection::FilesystemDetector;

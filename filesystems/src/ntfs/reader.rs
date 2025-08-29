@@ -144,8 +144,17 @@ impl NtfsReader {
         
         Ok(data)
     }
-}
 
+    /// Public method to list directory contents
+    pub fn list_directory(&mut self, path: &str) -> Result<Vec<FileEntry>, MosesError> {
+        <Self as FilesystemReader>::list_directory(self, path)
+    }
+    
+    /// Get filesystem information
+    pub fn filesystem_info(&self) -> Result<FilesystemInfo, MosesError> {
+        Ok(<Self as FilesystemReader>::get_info(self))
+    }
+}
 impl FilesystemReader for NtfsReader {
     fn read_metadata(&mut self) -> Result<(), MosesError> {
         // Metadata is read in new()
@@ -347,9 +356,10 @@ impl FilesystemReader for NtfsReader {
         let bytes_per_sector = self.boot_sector.bytes_per_sector;
         let total_bytes = total_sectors * bytes_per_sector as u64;
         
+
         FilesystemInfo {
             fs_type: "ntfs".to_string(),
-            label: None, // TODO: Get from $Volume
+            label: None,
             total_bytes,
             used_bytes: 0,  // TODO: Calculate from $Bitmap
             cluster_size: Some(self.bytes_per_cluster),

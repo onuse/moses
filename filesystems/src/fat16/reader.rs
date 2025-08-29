@@ -101,10 +101,10 @@ impl Fat16Reader {
     }
     
     /// Get next cluster from FAT
-    fn get_next_cluster(&mut self, cluster: u16) -> Result<Option<u16>, MosesError> {
+    pub fn get_next_cluster(&mut self, cluster: u16) -> Result<u16, MosesError> {
         // Check cache
         if let Some(&next) = self.fat_cache.get(&cluster) {
-            return Ok(if next >= 0xFFF8 { None } else { Some(next) });
+            return Ok(next);
         }
         
         // Read FAT entry (2 bytes per entry in FAT16)
@@ -115,12 +115,12 @@ impl Fat16Reader {
         // Cache it
         self.fat_cache.insert(cluster, next_cluster);
         
-        // Check for end of chain (0xFFF8 - 0xFFFF)
-        Ok(if next_cluster >= 0xFFF8 { None } else { Some(next_cluster) })
+        // Return next cluster (caller checks for end of chain)
+        Ok(next_cluster)
     }
     
     /// Read a cluster
-    fn read_cluster(&mut self, cluster: u16) -> Result<Vec<u8>, MosesError> {
+    pub fn read_cluster(&mut self, cluster: u16) -> Result<Vec<u8>, MosesError> {
         if cluster < 2 || cluster as u32 >= self.total_clusters + 2 {
             return Err(MosesError::Other(format!("Invalid cluster: {}", cluster)));
         }
@@ -144,12 +144,12 @@ impl Fat16Reader {
             let cluster_data = self.read_cluster(current)?;
             data.extend_from_slice(&cluster_data);
             
-            match self.get_next_cluster(current)? {
-                Some(next) => current = next,
-                None => break,
+            let next = self.get_next_cluster(current)?;
+            if next >= 0xFFF8 {
+                break;
             }
+            current = next;
         }
-        
         Ok(data)
     }
     
@@ -242,8 +242,37 @@ impl Fat16Reader {
         entries
     }
     
-    /// Read root directory
-    fn read_root_directory(&mut self) -> Result<Vec<FileEntry>, MosesError> {
+    /// Read root directory entries as raw FatDirEntry structs
+    pub fn read_root_directory(&mut self) -> Result<Vec<FatDirEntry>, MosesError> {
+        // Root directory is at a fixed location in FAT16
+        let root_offset = (self.reserved_sectors + self.fat_sectors) * self.bytes_per_sector;
+        let root_size = self.root_dir_sectors * self.bytes_per_sector;
+        
+        debug!("Reading root directory at offset {:#x}, size: {}", root_offset, root_size);
+        
+        let data = self.reader.read_at(root_offset as u64, root_size as usize)?;
+        let entry_size = std::mem::size_of::<FatDirEntry>();
+        let num_entries = data.len() / entry_size;
+        
+        let mut entries = Vec::new();
+        for i in 0..num_entries {
+            let offset = i * entry_size;
+            if offset + entry_size > data.len() {
+                break;
+            }
+            
+            let entry = unsafe {
+                std::ptr::read(data[offset..offset + entry_size].as_ptr() as *const FatDirEntry)
+            };
+            
+            entries.push(entry);
+        }
+        
+        Ok(entries)
+    }
+    
+    /// Read root directory as FileEntry list
+    fn read_root_directory_parsed(&mut self) -> Result<Vec<FileEntry>, MosesError> {
         // Root directory is at a fixed location in FAT16
         let root_offset = (self.reserved_sectors + self.fat_sectors) * self.bytes_per_sector;
         let root_size = self.root_dir_sectors * self.bytes_per_sector;
@@ -274,11 +303,11 @@ impl FilesystemReader for Fat16Reader {
         }
         
         let entries = if path == "/" || path.is_empty() {
-            self.read_root_directory()?
+            self.read_root_directory_parsed()?
         } else {
             // Navigate to directory
             let parts: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
-            let mut current_entries = self.read_root_directory()?;
+            let mut current_entries = self.read_root_directory_parsed()?;
             
             for part in parts {
                 let dir = current_entries.iter()

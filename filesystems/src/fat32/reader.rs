@@ -197,6 +197,11 @@ impl Fat32Reader {
         })
     }
     
+    /// Get the root cluster number
+    pub fn get_root_cluster(&self) -> u32 {
+        self.root_cluster
+    }
+    
     /// Get FAT entry for a cluster
     pub fn get_fat_entry(&mut self, cluster: u32) -> Result<u32, MosesError> {
         // Check cache first

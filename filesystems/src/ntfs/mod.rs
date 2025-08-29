@@ -34,6 +34,7 @@ pub mod ops_rw_v2;
 // Re-export main types
 pub use detector::NtfsDetector;
 pub use reader::NtfsReader;
+pub use writer::{NtfsWriter, NtfsWriteConfig};
 pub use formatter::NtfsFormatter;
 pub use ops::NtfsOps;
 pub use ops_rw_v2::NtfsRwOps;

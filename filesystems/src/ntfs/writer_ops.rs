@@ -62,6 +62,20 @@ impl NtfsWriter {
                 // Resident data - stored directly in MFT
                 debug!("Writing to resident DATA attribute");
                 
+                // Check if the write is within bounds of existing data
+                if offset as usize > resident_data.len() {
+                    self.rollback_transaction()?;
+                    return Err(MosesError::Other("Write offset beyond resident data size".to_string()));
+                }
+                
+                // For now, we'll only support overwriting existing resident data
+                // Full implementation would require ResidentDataWriter to modify MFT record
+                if offset as usize + data.len() > resident_data.len() {
+                    warn!("Cannot extend resident data - would require converting to non-resident");
+                    self.rollback_transaction()?;
+                    return Err(MosesError::NotSupported("Extending resident data not yet supported".to_string()));
+                }
+                
                 // Get the raw MFT record data
                 let mft_offset = self.mft_reader.mft_offset + (mft_record_num * self.boot_sector.mft_record_size() as u64);
                 let mft_record_data = self.reader.read_at(mft_offset, self.boot_sector.mft_record_size() as usize)?;

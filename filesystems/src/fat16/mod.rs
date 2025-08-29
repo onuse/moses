@@ -1,7 +1,10 @@
-// FAT16 module - formatter and reader
+// FAT16 module - formatter, reader, and writer
 
 pub mod formatter_compliant;
 pub mod reader;
+pub mod writer;
+pub mod path_resolver;
+pub mod file_ops;
 pub mod validator;
 pub mod detection;
 pub mod root_directory;
@@ -13,6 +16,7 @@ mod tests;
 // Use the compliant formatter as the default
 pub use formatter_compliant::Fat16CompliantFormatter as Fat16Formatter;
 pub use reader::Fat16Reader;
+pub use writer::Fat16Writer;
 pub use ops::Fat16Ops;
 
 // Use the new consolidated validator

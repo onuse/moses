@@ -3,8 +3,9 @@
 
 use moses_core::MosesError;
 type MosesResult<T> = Result<T, MosesError>;
-use crate::fat32::reader::{Fat32Reader, Fat32DirEntry, LongNameEntry, FileEntry};
-use std::path::{Path, PathBuf};
+use crate::fat32::reader::{Fat32Reader, Fat32DirEntry, LongNameEntry};
+use crate::device_reader::FileEntry;
+use std::path::PathBuf;
 
 // Directory entry attributes
 const ATTR_READ_ONLY: u8 = 0x01;
@@ -78,9 +79,7 @@ impl<'a> Fat32PathResolver<'a> {
         
         for (idx, component) in components.iter().enumerate() {
             if !is_directory {
-                return Err(MosesError::NotADirectory {
-                    path: current_path,
-                });
+                return Err(MosesError::Other(format!("Not a directory: {:?}", current_path)));
             }
             
             // Read directory entries from current cluster
@@ -88,9 +87,7 @@ impl<'a> Fat32PathResolver<'a> {
             
             // Find matching entry
             let entry = self.find_entry(&entries, component)
-                .ok_or_else(|| MosesError::PathNotFound {
-                    path: current_path.join(component),
-                })?;
+                .ok_or_else(|| MosesError::Other(format!("Path not found: {:?}", current_path.join(component))))?;
             
             // Update current state
             current_cluster = entry.cluster;
@@ -99,9 +96,7 @@ impl<'a> Fat32PathResolver<'a> {
             
             // If this is not the last component and it's not a directory, error
             if idx < components.len() - 1 && !is_directory {
-                return Err(MosesError::NotADirectory {
-                    path: current_path.clone(),
-                });
+                return Err(MosesError::Other(format!("Not a directory: {:?}", current_path.clone())));
             }
         }
         
@@ -116,9 +111,7 @@ impl<'a> Fat32PathResolver<'a> {
         
         let entries = self.read_directory_entries(parent_cluster)?;
         let final_entry = self.find_entry(&entries, components.last().unwrap())
-            .ok_or_else(|| MosesError::PathNotFound {
-                path: PathBuf::from(&path),
-            })?;
+            .ok_or_else(|| MosesError::Other(format!("Path not found: {:?}", PathBuf::from(&path))))?;
         
         Ok(ResolvedPath {
             cluster: final_entry.cluster,
@@ -241,8 +234,9 @@ impl<'a> Fat32PathResolver<'a> {
             let is_last = (lfn.order & 0x40) != 0;
             let _sequence = lfn.order & 0x3F;
             
-            // Extract characters from each part
-            for &ch in &lfn.name1 {
+            // Extract characters from each part (copy arrays to avoid packed field issues)
+            let name1 = lfn.name1;
+            for &ch in &name1 {
                 if ch == 0 || ch == 0xFFFF { 
                     return Ok(full_name);
                 }
@@ -251,7 +245,8 @@ impl<'a> Fat32PathResolver<'a> {
                 }
             }
             
-            for &ch in &lfn.name2 {
+            let name2 = lfn.name2;
+            for &ch in &name2 {
                 if ch == 0 || ch == 0xFFFF { 
                     return Ok(full_name);
                 }
@@ -260,7 +255,8 @@ impl<'a> Fat32PathResolver<'a> {
                 }
             }
             
-            for &ch in &lfn.name3 {
+            let name3 = lfn.name3;
+            for &ch in &name3 {
                 if ch == 0 || ch == 0xFFFF { 
                     return Ok(full_name);
                 }
