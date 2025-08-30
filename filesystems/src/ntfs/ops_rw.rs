@@ -6,10 +6,11 @@ use crate::device_reader::FilesystemReader;
 use crate::ops_helpers::convert_filesystem_info;
 use super::reader::NtfsReader;
 use super::writer::{NtfsWriter, NtfsWriteConfig};
+use super::path_resolver::PathResolver;
 use moses_core::{Device, MosesError};
 use std::path::Path;
 use std::sync::Mutex;
-use log::{info, warn, debug};
+use log::{info, debug};
 
 /// NTFS filesystem operations with read-write support
 pub struct NtfsRwOps {
@@ -171,32 +172,31 @@ impl FilesystemOps for NtfsRwOps {
     }
     
     // Write operations
-    fn write(&mut self, _path: &Path, _offset: u64, _data: &[u8]) -> Result<u32, MosesError> {
+    fn write(&mut self, path: &Path, offset: u64, data: &[u8]) -> Result<u32, MosesError> {
         if !self.write_enabled {
             return Err(MosesError::NotSupported("NTFS write support not enabled".to_string()));
         }
         
+        let path_str = path.to_str()
+            .ok_or_else(|| MosesError::Other("Invalid path".to_string()))?;
+        
+        // Get the MFT record number for the file
+        let mut reader = self.reader.lock().unwrap();
+        let reader = reader.as_mut()
+            .ok_or_else(|| MosesError::Other("Reader not initialized".to_string()))?;
+        
+        let mut path_resolver = PathResolver::new();
+        let mft_record_num = path_resolver.resolve_path(reader, path_str)?;
+        drop(reader);
+        
+        // Use the writer to write data
         let mut writer = self.writer.lock().unwrap();
         let writer = writer.as_mut()
             .ok_or_else(|| MosesError::Other("Writer not initialized".to_string()))?;
         
-        // Start a transaction for safety
-        writer.begin_transaction()?;
+        let bytes_written = writer.write_file_data(mft_record_num, offset, data)?;
         
-        // For now, we'll return not implemented since NtfsWriter doesn't have
-        // high-level file write methods yet. This is where we'd implement:
-        // 1. Find the MFT record for the file
-        // 2. Update the DATA attribute
-        // 3. Allocate new clusters if needed
-        // 4. Write the actual data
-        // 5. Update file size in MFT
-        
-        warn!("NTFS file write not yet implemented at high level");
-        
-        // Rollback since we didn't actually do anything
-        writer.rollback_transaction()?;
-        
-        Err(MosesError::NotSupported("NTFS file write not yet implemented".to_string()))
+        Ok(bytes_written as u32)
     }
     
     fn create(&mut self, path: &Path, mode: u32) -> Result<(), MosesError> {
@@ -204,25 +204,23 @@ impl FilesystemOps for NtfsRwOps {
             return Err(MosesError::NotSupported("NTFS write support not enabled".to_string()));
         }
         
+        let path_str = path.to_str()
+            .ok_or_else(|| MosesError::Other("Invalid path".to_string()))?;
+        
+        
+        // For now, we'll create files in the root directory
+        // Full implementation would parse the parent path and add to appropriate directory
+        
         let mut writer = self.writer.lock().unwrap();
         let writer = writer.as_mut()
             .ok_or_else(|| MosesError::Other("Writer not initialized".to_string()))?;
         
         debug!("Creating file: {:?} with mode {:o}", path, mode);
         
-        // Start transaction
-        writer.begin_transaction()?;
+        // Create the file
+        let _mft_record_num = writer.create_file(path_str, 0)?;
         
-        // Implementation would:
-        // 1. Allocate a new MFT record
-        // 2. Set up standard attributes (STANDARD_INFORMATION, FILE_NAME)
-        // 3. Create empty DATA attribute
-        // 4. Add to parent directory index
-        
-        // For now, return not implemented
-        writer.rollback_transaction()?;
-        
-        Err(MosesError::NotSupported("NTFS file creation not yet implemented".to_string()))
+        Ok(())
     }
     
     fn mkdir(&mut self, path: &Path, mode: u32) -> Result<(), MosesError> {
@@ -230,10 +228,20 @@ impl FilesystemOps for NtfsRwOps {
             return Err(MosesError::NotSupported("NTFS write support not enabled".to_string()));
         }
         
+        let path_str = path.to_str()
+            .ok_or_else(|| MosesError::Other("Invalid path".to_string()))?;
+
+        
         debug!("Creating directory: {:?} with mode {:o}", path, mode);
         
-        // Similar to create() but with directory flag
-        Err(MosesError::NotSupported("NTFS directory creation not yet implemented".to_string()))
+        let mut writer = self.writer.lock().unwrap();
+        let writer = writer.as_mut()
+            .ok_or_else(|| MosesError::Other("Writer not initialized".to_string()))?;
+        
+        // Create the directory
+        let _mft_record_num = writer.create_directory(path_str)?;
+        
+        Ok(())
     }
     
     fn unlink(&mut self, path: &Path) -> Result<(), MosesError> {
@@ -241,10 +249,28 @@ impl FilesystemOps for NtfsRwOps {
             return Err(MosesError::NotSupported("NTFS write support not enabled".to_string()));
         }
         
+        let path_str = path.to_str()
+            .ok_or_else(|| MosesError::Other("Invalid path".to_string()))?;
+        
         debug!("Deleting file: {:?}", path);
         
-        // Would free MFT record and remove from parent directory
-        Err(MosesError::NotSupported("NTFS file deletion not yet implemented".to_string()))
+        // Get the MFT record number for the file
+        let mut reader = self.reader.lock().unwrap();
+        let reader = reader.as_mut()
+            .ok_or_else(|| MosesError::Other("Reader not initialized".to_string()))?;
+        
+        let mut path_resolver = PathResolver::new();
+        let mft_record_num = path_resolver.resolve_path(reader, path_str)?;
+        drop(reader);
+        
+        // Delete the file
+        let mut writer = self.writer.lock().unwrap();
+        let writer = writer.as_mut()
+            .ok_or_else(|| MosesError::Other("Writer not initialized".to_string()))?;
+        
+        writer.delete_file(mft_record_num)?;
+        
+        Ok(())
     }
     
     fn sync(&mut self) -> Result<(), MosesError> {

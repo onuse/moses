@@ -7,6 +7,7 @@
 use moses_core::{Device, MosesError};
 use crate::device_reader::AlignedDeviceReader;
 use crate::ntfs::boot_sector::NtfsBootSectorReader;
+use super::path_resolver::PathResolver;
 use crate::ntfs::mft::{MftReader, MftRecord};
 use crate::ntfs::structures::*;
 use crate::ntfs::attributes::AttributeData;
@@ -85,6 +86,9 @@ pub struct NtfsWriter {
     pub(crate) volume_bitmap: Option<Vec<u8>>,
     
     // Safety tracking
+    
+    // Path resolution
+    pub(crate) path_resolver: PathResolver,
     pub(crate) modified_mft_records: HashSet<u64>,
     pub(crate) modified_clusters: HashSet<u64>,
 }
@@ -168,6 +172,7 @@ impl NtfsWriter {
             mft_bitmap: None,
             volume_bitmap: None,
             modified_mft_records: HashSet::new(),
+            path_resolver: PathResolver::new(),
             modified_clusters: HashSet::new(),
         };
         

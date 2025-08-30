@@ -4,6 +4,7 @@
 mod helpers;
 mod extent_tree;
 mod directory;
+mod extent_tree_ops;
 
 mod path_resolution;
 mod disk_io;

@@ -3,10 +3,10 @@
 
 use moses_core::MosesError;
 use crate::fat16::reader::Fat16Reader;
+use crate::fat16::lfn_support::LfnParser;
 use crate::fat16::writer::Fat16Writer;
 use crate::fat_common::{FatDirEntry, FatAttributes};
 use crate::device_reader::FileEntry;
-use std::path::{Path, PathBuf};
 use log::{debug, trace};
 
 // FAT16 specific constants
@@ -123,6 +123,7 @@ impl<'a> Fat16PathResolver<'a> {
         // FAT16 has a fixed-size root directory
         let root_entries = self.reader.read_root_directory()?;
         let mut entries = Vec::new();
+        let mut lfn_parser = LfnParser::new();
         
         for entry in root_entries {
             // Skip empty and deleted entries
@@ -130,22 +131,33 @@ impl<'a> Fat16PathResolver<'a> {
                 break;  // End of directory
             }
             if entry.name[0] == 0xE5 {
+                lfn_parser.reset();  // Reset LFN on deleted entry
                 continue;  // Deleted entry
             }
             
-            // Skip volume labels and LFN entries
-            if entry.attributes & FatAttributes::VOLUME_ID != 0 {
+            // Skip volume labels (but not LFN entries)
+            if entry.attributes & FatAttributes::VOLUME_ID != 0 && entry.attributes != ATTR_LONG_NAME {
                 continue;
             }
-            if entry.attributes == ATTR_LONG_NAME {
-                continue;  // Long filename entry - TODO: implement LFN support
+            
+            // Check if this is an LFN entry
+            let entry_bytes = unsafe {
+                std::slice::from_raw_parts(&entry as *const FatDirEntry as *const u8, std::mem::size_of::<FatDirEntry>())
+            };
+            
+            if lfn_parser.process_entry(entry_bytes) {
+                continue;  // This was an LFN entry, processed
             }
             
             // Parse the short name
             let short_name = Self::parse_short_name(&entry.name);
             
+            // Get long name if available, otherwise use short name
+            let long_name = lfn_parser.get_long_name();
+            let name = long_name.unwrap_or_else(|| short_name.clone());
+            
             entries.push(DirectoryEntry {
-                name: short_name.clone(),  // TODO: use LFN when available
+                name,
                 short_name,
                 is_directory: entry.attributes & FatAttributes::DIRECTORY != 0,
                 cluster: entry.first_cluster_low,
@@ -166,6 +178,7 @@ impl<'a> Fat16PathResolver<'a> {
         }
         
         let mut entries = Vec::new();
+        let mut lfn_parser = LfnParser::new();
         let mut current_cluster = cluster;
         
         // Follow the cluster chain
@@ -194,15 +207,18 @@ impl<'a> Fat16PathResolver<'a> {
                 
                 // Skip deleted entries
                 if entry.name[0] == 0xE5 {
+                    lfn_parser.reset();  // Reset LFN on deleted entry
                     continue;
                 }
                 
-                // Skip volume labels and LFN entries
-                if entry.attributes & FatAttributes::VOLUME_ID != 0 {
+                // Skip volume labels (but not LFN entries)
+                if entry.attributes & FatAttributes::VOLUME_ID != 0 && entry.attributes != ATTR_LONG_NAME {
                     continue;
                 }
-                if entry.attributes == ATTR_LONG_NAME {
-                    continue;  // TODO: implement LFN support
+                
+                // Check if this is an LFN entry
+                if lfn_parser.process_entry(entry_bytes) {
+                    continue;  // This was an LFN entry, processed
                 }
                 
                 // Skip . and .. entries
@@ -214,8 +230,12 @@ impl<'a> Fat16PathResolver<'a> {
                 
                 let short_name = Self::parse_short_name(&entry.name);
                 
+                // Get long name if available, otherwise use short name
+                let long_name = lfn_parser.get_long_name();
+                let name = long_name.unwrap_or_else(|| short_name.clone());
+                
                 entries.push(DirectoryEntry {
-                    name: short_name.clone(),  // TODO: use LFN when available
+                    name,
                     short_name,
                     is_directory: entry.attributes & FatAttributes::DIRECTORY != 0,
                     cluster: entry.first_cluster_low,

@@ -33,6 +33,8 @@ async fn test_ext4_format_simple() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     

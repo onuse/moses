@@ -7,7 +7,6 @@ pub mod utils;
 pub mod detection;
 pub mod device_reader;
 pub mod device_writer;
-pub mod diagnostics;
 pub mod diagnostics_improved;
 pub mod partitioner;
 pub mod disk_manager;
@@ -22,9 +21,6 @@ pub mod test_helpers;
 #[cfg(feature = "mount")]
 pub mod mount;
 
-// Legacy implementations (kept for reference, not exposed by default)
-#[cfg(feature = "legacy")]
-pub mod legacy;
 
 // Native ext4 implementation - used for all platforms
 pub mod ext4_native;
@@ -38,16 +34,9 @@ pub use ext_family::{Ext2Formatter, Ext3Formatter};
 // NTFS implementation - read and format support
 pub use ntfs::{NtfsDetector, NtfsReader, NtfsFormatter, NtfsOps, NtfsRwOps};
 pub use fat16::{Fat16Formatter, Fat16Reader, Fat16Ops};
-pub use fat32::{Fat32Formatter, Fat32Reader};
+pub use fat32::{Fat32Formatter, Fat32Reader, Fat32Ops};
 pub use exfat::{ExFatFormatter, ExFatReader, ExFatOps};
 
-// Deprecated - using Ext4NativeFormatter instead
-// #[cfg(target_os = "windows")]
-// pub use ext4_windows::Ext4WindowsFormatter;
-
-// Deprecated - using native NTFS implementation instead
-// #[cfg(target_os = "windows")]
-// pub use ntfs_windows::NtfsWindowsFormatter;
 
 // Re-export registration functions
 pub use registration::{register_builtin_formatters, list_available_formatters, get_formatter_info};

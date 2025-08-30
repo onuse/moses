@@ -6,7 +6,7 @@ use crate::fat16::reader::Fat16Reader;
 use crate::fat16::writer::Fat16Writer;
 use crate::fat16::path_resolver::{Fat16PathResolver, Fat16PathResolverMut};
 use crate::fat_common::{FatDirEntry, FatAttributes};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use log::{info, debug, warn};
 
 type MosesResult<T> = Result<T, MosesError>;

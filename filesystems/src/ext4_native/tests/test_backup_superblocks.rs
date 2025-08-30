@@ -42,6 +42,8 @@ mod tests {
             enable_compression: false,
             enable_encryption: false,
             verify_after_format: false,
+        dry_run: false,
+        force: false,
         };
         
         // Format the device

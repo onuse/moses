@@ -9,6 +9,8 @@ pub mod validator;
 pub mod detection;
 pub mod root_directory;
 pub mod ops;
+pub mod lfn_support;
+pub mod subdirectory_ops;
 
 #[cfg(test)]
 mod tests;

@@ -2,15 +2,12 @@
 // Handles file writing, directory creation, and cluster management
 
 use moses_core::{Device, MosesError};
-use crate::device_reader::AlignedDeviceReader;
-use crate::fat32::reader::{Fat32Reader, Fat32BootSector, Fat32DirEntry, LongNameEntry};
+use crate::fat32::reader::{Fat32BootSector, Fat32DirEntry};
 // use crate::fat32::path_resolver::{Fat32PathResolver, DirectoryEntry};
-use crate::utils::open_device_write;
 use std::collections::HashMap;
 use std::io::{Read, Write, Seek, SeekFrom};
 use std::fs::{File, OpenOptions};
-use std::path::PathBuf;
-use log::{info, debug, warn};
+use log::{info, debug};
 use chrono::{Datelike, Timelike};
 
 // FAT32 constants

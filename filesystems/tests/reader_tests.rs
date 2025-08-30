@@ -62,6 +62,8 @@ async fn test_format_and_read_ext4() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -107,6 +109,8 @@ async fn test_format_and_read_ext2() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -139,6 +143,8 @@ async fn test_format_and_read_ext3() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -171,6 +177,8 @@ async fn test_format_and_read_fat32() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     

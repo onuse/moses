@@ -1,0 +1,16 @@
+--- src/ntfs/writer_ops.rs
++++ src/ntfs/writer_ops.rs
+@@ -398,11 +398,11 @@ impl NtfsWriter {
+     /// Split a path into parent directory path and filename/dirname
+     fn split_path(&self, path: &str) -> (&str, &str) {
+         // Normalize path - remove trailing slash unless its root
+-        let path = if path != "/" && path.ends_with('/') {
++        let normalized = if path != "/" && path.ends_with('/') {
+             &path[..path.len() - 1]
+         } else {
+             path
+         };
+         
+         // Find the last slash
+-        if let Some(pos) = path.rfind('/') {
++        if let Some(pos) = normalized.rfind('/') {

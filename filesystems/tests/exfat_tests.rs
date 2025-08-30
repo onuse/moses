@@ -66,6 +66,8 @@ async fn test_exfat_validate_options() {
         cluster_size: None,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     
@@ -79,6 +81,8 @@ async fn test_exfat_validate_options() {
         cluster_size: None,
         enable_compression: true, // exFAT doesn't support compression
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     
@@ -98,6 +102,8 @@ async fn test_exfat_label_truncation() {
         cluster_size: None,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     
@@ -122,6 +128,8 @@ async fn test_format_and_read_exfat() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -186,6 +194,8 @@ async fn test_dry_run() {
         cluster_size: None,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     

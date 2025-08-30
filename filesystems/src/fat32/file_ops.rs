@@ -3,10 +3,10 @@
 
 use moses_core::MosesError;
 use crate::fat32::writer::Fat32Writer;
-use crate::fat32::path_resolver::{Fat32PathResolver, ResolvedPath, DirectoryEntry};
+use crate::fat32::path_resolver::Fat32PathResolver;
 use crate::fat32::reader::{Fat32Reader, Fat32DirEntry, LongNameEntry};
-use std::path::{Path, PathBuf};
-use std::io::{Read, Write, Seek, SeekFrom};
+use std::path::PathBuf;
+use std::io::{Read, Write};
 use log::{info, debug};
 
 type MosesResult<T> = Result<T, MosesError>;

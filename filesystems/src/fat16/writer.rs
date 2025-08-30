@@ -2,7 +2,6 @@
 // Handles file writing, directory creation, and cluster management for FAT16
 
 use moses_core::{Device, MosesError};
-use crate::fat16::reader::Fat16Reader;
 use crate::fat_common::{Fat16BootSector, FatDirEntry as Fat16DirEntry};
 use std::collections::HashMap;
 use std::io::{Read, Write, Seek, SeekFrom};

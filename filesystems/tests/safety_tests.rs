@@ -44,6 +44,8 @@ mod safety_tests {
             cluster_size: None,
             enable_compression: false,
             verify_after_format: false,
+        dry_run: false,
+        force: false,
             additional_options: HashMap::new(),
         }
     }
@@ -149,6 +151,8 @@ mod safety_tests {
                 cluster_size: None,
                 enable_compression: false,
                 verify_after_format: false,
+        dry_run: false,
+        force: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -158,6 +162,8 @@ mod safety_tests {
                 cluster_size: Some(4096),
                 enable_compression: false,
                 verify_after_format: false,
+        dry_run: false,
+        force: false,
                 additional_options: HashMap::new(),
             },
         ];
@@ -176,6 +182,8 @@ mod safety_tests {
                 cluster_size: None,
                 enable_compression: false,
                 verify_after_format: false,
+        dry_run: false,
+        force: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -185,6 +193,8 @@ mod safety_tests {
                 cluster_size: None,
                 enable_compression: false,
                 verify_after_format: false,
+        dry_run: false,
+        force: false,
                 additional_options: HashMap::new(),
             },
             FormatOptions {
@@ -194,6 +204,8 @@ mod safety_tests {
                 cluster_size: None,
                 enable_compression: false,
                 verify_after_format: false,
+        dry_run: false,
+        force: false,
                 additional_options: HashMap::new(),
             },
         ];

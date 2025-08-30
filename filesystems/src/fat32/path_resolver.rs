@@ -4,7 +4,6 @@
 use moses_core::MosesError;
 type MosesResult<T> = Result<T, MosesError>;
 use crate::fat32::reader::{Fat32Reader, Fat32DirEntry, LongNameEntry};
-use crate::device_reader::FileEntry;
 use std::path::PathBuf;
 
 // Directory entry attributes

@@ -82,6 +82,8 @@ async fn test_ext4_volume_label() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     
@@ -111,6 +113,8 @@ async fn test_fat32_volume_label() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     
@@ -140,6 +144,8 @@ async fn test_exfat_volume_label() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: HashMap::new(),
     };
     

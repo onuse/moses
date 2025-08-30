@@ -44,6 +44,8 @@ async fn test_format_write_read_cycle(
         quick_format: true,
         enable_compression: false,
         verify_after_format: true,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -156,6 +158,8 @@ async fn test_cross_filesystem_copy() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
@@ -166,6 +170,8 @@ async fn test_cross_filesystem_copy() {
         quick_format: true,
         enable_compression: false,
         verify_after_format: false,
+        dry_run: false,
+        force: false,
         additional_options: Default::default(),
     };
     
