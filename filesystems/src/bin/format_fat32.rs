@@ -79,7 +79,7 @@ fn create_mbr_with_fat32_partition(total_sectors: u32) -> [u8; 512] {
 }
 
 fn format_fat32_direct(device_path: &str, volume_label: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    use moses_filesystems::fat_common::*;
+    use moses_filesystems::families::fat::common::*;
     
     // Open the device
     let mut device = OpenOptions::new()

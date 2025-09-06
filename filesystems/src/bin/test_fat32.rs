@@ -46,7 +46,7 @@ fn main() {
 
 // Low-level FAT32 format function
 fn format_fat32(device_path: &str, volume_label: Option<&str>) -> Result<(), Box<dyn std::error::Error>> {
-    use moses_filesystems::fat32::formatter_native::Fat32NativeFormatter;
+    use moses_filesystems::families::fat::fat32::Fat32Formatter;
     use moses_core::{Device, DeviceType, FormatOptions, FilesystemFormatter};
     
     // Create a minimal device struct
@@ -76,7 +76,7 @@ fn format_fat32(device_path: &str, volume_label: Option<&str>) -> Result<(), Box
     
     // Use tokio runtime to call async function
     let runtime = tokio::runtime::Runtime::new()?;
-    let formatter = Fat32NativeFormatter;
+    let formatter = Fat32Formatter;
     
     runtime.block_on(async {
         formatter.format(&device, &options).await

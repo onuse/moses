@@ -9,7 +9,7 @@
 //! env_logger = "0.10"
 //! ```
 
-use moses_filesystems::ntfs::{NtfsFormatter, NtfsRwOps};
+use moses_filesystems::families::ntfs::ntfs::{NtfsFormatter, NtfsRwOps};
 use moses_filesystems::ops::FilesystemOps;
 use moses_core::Device;
 use std::path::Path;

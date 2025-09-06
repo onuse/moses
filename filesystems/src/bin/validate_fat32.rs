@@ -1,7 +1,18 @@
 // FAT32 validation tool
+// NOTE: Fat32ComprehensiveValidator has been moved/removed during refactoring
+// This tool needs to be updated to work with the new architecture
+
+fn main() {
+    eprintln!("FAT32 validator is currently unavailable.");
+    eprintln!("The Fat32ComprehensiveValidator type was removed during filesystem refactoring.");
+    eprintln!("This tool needs to be rewritten to work with the new architecture.");
+    std::process::exit(1);
+}
+
+/* Original code preserved for reference:
 // Usage: validate_fat32 <device_path>
 
-use moses_filesystems::fat32::validator::Fat32ComprehensiveValidator;
+use moses_filesystems::families::fat::fat32::validator::Fat32ComprehensiveValidator;
 use std::env;
 
 fn main() {
@@ -55,19 +66,19 @@ fn main() {
             // Print summary
             println!();
             match report.overall_status {
-                moses_filesystems::fat_common::validator::ValidationStatus::Perfect => {
+                moses_filesystems::families::fat::common::validator::ValidationStatus::Perfect => {
                     println!("✓ PERFECT: FAT32 filesystem is 100% compliant!");
                 }
-                moses_filesystems::fat_common::validator::ValidationStatus::Compliant => {
+                moses_filesystems::families::fat::common::validator::ValidationStatus::Compliant => {
                     println!("✓ COMPLIANT: FAT32 filesystem meets specifications with minor warnings.");
                 }
-                moses_filesystems::fat_common::validator::ValidationStatus::PartiallyCompliant => {
+                moses_filesystems::families::fat::common::validator::ValidationStatus::PartiallyCompliant => {
                     println!("⚠ PARTIALLY COMPLIANT: FAT32 filesystem has some issues but may work.");
                 }
-                moses_filesystems::fat_common::validator::ValidationStatus::NonCompliant => {
+                moses_filesystems::families::fat::common::validator::ValidationStatus::NonCompliant => {
                     println!("✗ NON-COMPLIANT: FAT32 filesystem has major violations!");
                 }
-                moses_filesystems::fat_common::validator::ValidationStatus::Corrupted => {
+                moses_filesystems::families::fat::common::validator::ValidationStatus::Corrupted => {
                     println!("✗ CORRUPTED: FAT32 filesystem is corrupted!");
                 }
             }
@@ -78,3 +89,4 @@ fn main() {
         }
     }
 }
+*/

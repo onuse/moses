@@ -6,11 +6,11 @@ use moses_core::{Device, MosesError};
 
 /// Register all built-in filesystem operations
 pub fn register_all_filesystems(registry: &mut FilesystemOpsRegistry, enable_write: bool) {
-    use crate::ext4_native::{Ext4Ops, ExtOpsDetector};
-    use crate::ntfs::{NtfsOps, NtfsRwOps};
-    use crate::fat32::Fat32Ops;
-    use crate::fat16::Fat16Ops;
-    use crate::exfat::ExFatOps;
+    use crate::families::ext::ext4_native::{Ext4Ops, ExtOpsDetector};
+    use crate::families::ntfs::ntfs::{NtfsOps, NtfsRwOps};
+    use crate::families::fat::fat32::Fat32Ops;
+    use crate::families::fat::fat16::Fat16Ops;
+    use crate::families::fat::exfat::ExFatOps;
     
     // Register ext4 operations (read-only for now)
     registry.register_ops("ext4", |device| {

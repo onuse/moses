@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod read_operation_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     use std::path::Path;
     
@@ -73,7 +73,7 @@ mod read_operation_tests {
 
 #[cfg(test)]
 mod write_operation_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     use std::path::Path;
     
@@ -161,7 +161,7 @@ mod write_operation_tests {
 
 #[cfg(test)]
 mod directory_operation_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     use std::path::Path;
     
@@ -200,7 +200,7 @@ mod directory_operation_tests {
 
 #[cfg(test)]
 mod concurrent_operation_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use std::sync::{Arc, Mutex};
     use std::thread;
     
@@ -231,7 +231,7 @@ mod concurrent_operation_tests {
 
 #[cfg(test)]
 mod error_handling_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     use moses_core::MosesError;
     

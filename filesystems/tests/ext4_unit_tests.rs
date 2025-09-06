@@ -3,8 +3,8 @@
 
 #[cfg(test)]
 mod ext4_structure_tests {
-    use moses_filesystems::ext4_native::core::structures::*;
-    use moses_filesystems::ext4_native::core::constants::*;
+    use moses_filesystems::families::ext::ext4_native::core::structures::*;
+    use moses_filesystems::families::ext::ext4_native::core::constants::*;
     
     #[test]
     fn test_superblock_structure_size() {
@@ -76,7 +76,7 @@ mod ext4_structure_tests {
 
 #[cfg(test)]
 mod htree_hash_tests {
-    use moses_filesystems::ext4_native::writer::htree::*;
+    use moses_filesystems::families::ext::ext4_native::writer::htree::*;
     
     #[test]
     fn test_legacy_hash_known_values() {
@@ -124,7 +124,7 @@ mod htree_hash_tests {
 
 #[cfg(test)]
 mod indirect_block_tests {
-    use moses_filesystems::ext4_native::core::types::*;
+    use moses_filesystems::families::ext::ext4_native::core::types::*;
     
     #[test]
     fn test_indirect_block_limits() {
@@ -175,7 +175,7 @@ mod indirect_block_tests {
 
 #[cfg(test)]
 mod transaction_tests {
-    use moses_filesystems::ext4_native::core::transaction::*;
+    use moses_filesystems::families::ext::ext4_native::core::transaction::*;
     
     #[test]
     fn test_transaction_ordering() {
@@ -198,7 +198,7 @@ mod transaction_tests {
 
 #[cfg(test)]
 mod block_allocator_tests {
-    use moses_filesystems::ext4_native::core::block_allocator::*;
+    use moses_filesystems::families::ext::ext4_native::core::block_allocator::*;
     
     #[test]
     fn test_block_allocation_strategy() {
@@ -223,7 +223,7 @@ mod block_allocator_tests {
 
 #[cfg(test)]
 mod checksum_tests {
-    use moses_filesystems::ext4_native::core::checksum::*;
+    use moses_filesystems::families::ext::ext4_native::core::checksum::*;
     
     #[test]
     fn test_crc32c_known_values() {

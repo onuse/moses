@@ -50,27 +50,27 @@ pub fn detect_filesystem(file: &mut std::fs::File) -> Result<String, MosesError>
     
     // Try each filesystem detector
     // NTFS
-    if let Some(fs) = crate::ntfs::NtfsDetector::detect(&boot_sector, ext_superblock.as_deref()) {
+    if let Some(fs) = crate::families::ntfs::ntfs::NtfsDetector::detect(&boot_sector, ext_superblock.as_deref()) {
         return Ok(fs);
     }
     
     // exFAT
-    if let Some(fs) = crate::exfat::ExFatDetector::detect(&boot_sector, ext_superblock.as_deref()) {
+    if let Some(fs) = crate::families::fat::exfat::ExFatDetector::detect(&boot_sector, ext_superblock.as_deref()) {
         return Ok(fs);
     }
     
     // FAT32 (check before FAT16 since FAT32 is more specific)
-    if let Some(fs) = crate::fat32::Fat32Detector::detect(&boot_sector, ext_superblock.as_deref()) {
+    if let Some(fs) = crate::families::fat::fat32::Fat32Detector::detect(&boot_sector, ext_superblock.as_deref()) {
         return Ok(fs);
     }
     
     // FAT16
-    if let Some(fs) = crate::fat16::Fat16Detector::detect(&boot_sector, ext_superblock.as_deref()) {
+    if let Some(fs) = crate::families::fat::fat16::Fat16Detector::detect(&boot_sector, ext_superblock.as_deref()) {
         return Ok(fs);
     }
     
     // ext family (ext2/3/4)
-    if let Some(fs) = crate::ext4_native::ExtDetector::detect(&boot_sector, ext_superblock.as_deref()) {
+    if let Some(fs) = crate::families::ext::ext4_native::ExtDetector::detect(&boot_sector, ext_superblock.as_deref()) {
         return Ok(fs);
     }
     

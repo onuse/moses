@@ -1,7 +1,7 @@
 // Test NTFS read-write operations
 // This test creates a test NTFS image and performs various read-write operations
 
-use moses_filesystems::ntfs::{NtfsFormatter, NtfsRwOps};
+use moses_filesystems::families::ntfs::ntfs::{NtfsFormatter, NtfsRwOps};
 use moses_filesystems::ops::FilesystemOps;
 use moses_core::Device;
 use std::path::Path;

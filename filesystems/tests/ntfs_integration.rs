@@ -1,7 +1,7 @@
 // Integration tests for NTFS read-write operations
 // Tests the complete NTFS implementation including formatting, reading, and writing
 
-use moses_filesystems::ntfs::{NtfsFormatter, NtfsRwOps};
+use moses_filesystems::families::ntfs::ntfs::{NtfsFormatter, NtfsRwOps};
 use moses_filesystems::ops::FilesystemOps;
 use moses_core::{Device, DeviceType};
 use std::path::Path;

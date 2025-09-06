@@ -6,13 +6,13 @@ use std::sync::Arc;
 
 // Import all our formatters
 // NTFS support is read-only for now (Phase 1)
-use crate::fat16::Fat16Formatter;
-use crate::fat32::Fat32Formatter;
-use crate::exfat::ExFatFormatter;
+use crate::families::fat::fat16::Fat16Formatter;
+use crate::families::fat::fat32::Fat32Formatter;
+use crate::families::fat::exfat::ExFatFormatter;
 
 // Use native EXT implementation for all platforms
-use crate::ext4_native::Ext4NativeFormatter;
-use crate::ext_family::{Ext2Formatter, Ext3Formatter};
+use crate::families::ext::ext4_native::Ext4NativeFormatter;
+use crate::families::ext::{Ext2Formatter, Ext3Formatter};
 
 /// Register all built-in formatters with their metadata
 /// This serves as an example of how to properly register formatters

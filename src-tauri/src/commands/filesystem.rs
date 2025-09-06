@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use once_cell::sync::Lazy;
 use moses_filesystems::device_reader::FilesystemReader;
-use moses_filesystems::diagnostics::analyze_unknown_filesystem;
+// // use // moses_filesystems::diagnostics::analyze_unknown_filesystem;
 use crate::filesystem_cache;
 
 // Cache for filesystem types to avoid repeated admin prompts
@@ -286,7 +286,7 @@ async fn read_ext_directory(
     path: &str,
     variant: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_filesystems::ext4_native::ExtReader;
+    use moses_filesystems::families::ext::ext4_native::reader::ExtReader;
     
     log::info!("Reading {} directory: {} on device {}", variant, path, device.id);
     
@@ -302,7 +302,7 @@ async fn read_ext_directory(
     let mut total_size = 0u64;
     let converted_entries: Vec<DirectoryEntry> = entries.into_iter().map(|entry| {
         // Only count size for files, not directories
-        let size = if entry.entry_type == moses_filesystems::ext4_native::reader::FileType::Regular {
+        let size = if entry.entry_type == moses_filesystems::families::ext::ext4_native::reader::FileType::Regular {
             // We'd need to get the actual size from the inode
             // For now, just return 0 as we don't have size in DirEntry
             Some(0u64)
@@ -322,11 +322,11 @@ async fn read_ext_directory(
                 format!("{}/{}", path.trim_end_matches('/'), entry.name)
             },
             entry_type: match entry.entry_type {
-                moses_filesystems::ext4_native::reader::FileType::Directory => EntryType::Directory,
-                moses_filesystems::ext4_native::reader::FileType::Regular => EntryType::File,
-                moses_filesystems::ext4_native::reader::FileType::Symlink => EntryType::Symlink,
-                moses_filesystems::ext4_native::reader::FileType::CharDevice |
-                moses_filesystems::ext4_native::reader::FileType::BlockDevice => EntryType::Device,
+                moses_filesystems::families::ext::ext4_native::reader::FileType::Directory => EntryType::Directory,
+                moses_filesystems::families::ext::ext4_native::reader::FileType::Regular => EntryType::File,
+                moses_filesystems::families::ext::ext4_native::reader::FileType::Symlink => EntryType::Symlink,
+                moses_filesystems::families::ext::ext4_native::reader::FileType::CharDevice |
+                moses_filesystems::families::ext::ext4_native::reader::FileType::BlockDevice => EntryType::Device,
                 _ => EntryType::Other,
             },
             size,
@@ -369,7 +369,7 @@ async fn read_fat16_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_filesystems::Fat16Reader;
+    use moses_filesystems::families::fat::fat16::Fat16Reader;
     
     log::info!("Reading FAT16 directory: {} on device {}", path, device.id);
     
@@ -420,7 +420,7 @@ async fn read_fat32_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_filesystems::Fat32Reader;
+    use moses_filesystems::families::fat::fat32::Fat32Reader;
     
     log::info!("Reading FAT32 directory: {} on device {}", path, device.id);
     
@@ -471,7 +471,7 @@ async fn read_ntfs_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_filesystems::ntfs::NtfsReader;
+    use moses_filesystems::families::ntfs::ntfs::NtfsReader;
     
     log::info!("Reading NTFS directory: {} on device {}", path, device.id);
     
@@ -522,7 +522,7 @@ async fn read_exfat_directory(
     device: &Device,
     path: &str,
 ) -> Result<DirectoryListing, String> {
-    use moses_filesystems::ExFatReader;
+    use moses_filesystems::families::fat::exfat::ExFatReader;
     
     // Create reader
     let mut reader = ExFatReader::new(device.clone())
@@ -712,16 +712,8 @@ pub async fn get_filesystem_type(
     let device = get_device(&device_id)
         .ok_or_else(|| format!("Device {} not found", device_id))?;
     
-    match moses_filesystems::diagnostics::get_filesystem_type(&device) {
-        Ok(fs_type) => {
-            log::info!("Detected filesystem type: {}", fs_type);
-            Ok(fs_type)
-        }
-        Err(e) => {
-            log::error!("Failed to get filesystem type: {:?}", e);
-            Err(format!("Failed to detect filesystem type: {:?}", e))
-        }
-    }
+    // TODO: Implement get_filesystem_type once diagnostics module is available
+    Err("Filesystem type detection not yet implemented".to_string())
 }
 
 /// Analyze an unknown filesystem and return diagnostic information
@@ -741,53 +733,16 @@ pub async fn analyze_filesystem(
             .ok_or_else(|| format!("Device {} not found", device_id))?;
         
         // Try the analysis
-        match analyze_unknown_filesystem(&device) {
-            Ok(report) => {
-                log::info!("Filesystem analysis completed successfully");
-                
-                // Cache the result
-                cache_analysis_result(&device_id, &report);
-                
-                return Ok(report);
-            }
-            Err(e) => {
-                // Check if it's an access denied error
-                let error_str = format!("{:?}", e);
-                if error_str.contains("os error 5") || error_str.contains("Access is denied") {
-                    log::info!("Analysis requires elevation, checking admin status");
-                    
-                    if !is_elevated() {
-                        // Return special error that UI can handle
-                        return Err("ELEVATION_REQUIRED".to_string());
-                    }
-                }
-                
-                log::error!("Failed to analyze filesystem: {:?}", e);
-                return Err(format!("Failed to analyze filesystem: {:?}", e));
-            }
-        }
-    }
+        return Err("Filesystem analysis not yet implemented".to_string());
     
+    }
     // Non-Windows platforms
     #[cfg(not(target_os = "windows"))]
     {
         let device = get_device(&device_id)
             .ok_or_else(|| format!("Device {} not found", device_id))?;
         
-        match analyze_unknown_filesystem(&device) {
-            Ok(report) => {
-                log::info!("Filesystem analysis completed successfully");
-                
-                // Cache the result
-                cache_analysis_result(&device_id, &report);
-                
-                Ok(report)
-            }
-            Err(e) => {
-                log::error!("Failed to analyze filesystem: {:?}", e);
-                Err(format!("Failed to analyze filesystem: {:?}", e))
-            }
-        }
+        return Err("Filesystem analysis not yet implemented".to_string());
     }
 }
 

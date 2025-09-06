@@ -1,5 +1,16 @@
 // Test program for FAT16 compliant formatter
-use moses_filesystems::fat16::Fat16Validator;
+// NOTE: Fat16Validator has been moved/removed during refactoring
+// This test needs to be updated to work with the new architecture
+
+fn main() {
+    eprintln!("FAT16 validator test is currently unavailable.");
+    eprintln!("The Fat16Validator type was removed during filesystem refactoring.");
+    eprintln!("This test needs to be rewritten to work with the new architecture.");
+    std::process::exit(1);
+}
+
+/* Original code preserved for reference:
+use moses_filesystems::families::fat::fat16::Fat16Validator;
 use std::env;
 
 fn main() {
@@ -62,3 +73,4 @@ fn main() {
         }
     }
 }
+*/

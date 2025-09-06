@@ -33,7 +33,7 @@ fn test_filesystem_info_structs_exist() {
     // Just verify that the info structs compile
     
     // exFAT
-    let _exfat_info = moses_filesystems::exfat::reader::ExFatInfo {
+    let _exfat_info = moses_filesystems::families::fat::exfat::reader::ExFatInfo {
         filesystem_type: "exFAT".to_string(),
         label: Some("TEST".to_string()),
         total_clusters: 1000,
@@ -42,7 +42,7 @@ fn test_filesystem_info_structs_exist() {
     };
     
     // FAT32
-    let _fat32_info = moses_filesystems::fat32::reader::FsInfo {
+    let _fat32_info = moses_filesystems::families::fat::fat32::reader::FsInfo {
         filesystem_type: "FAT32".to_string(),
         label: Some("TEST".to_string()),
         total_bytes: 1000 * 4096,

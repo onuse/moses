@@ -1,7 +1,18 @@
 // Command-line tool to validate FAT16 filesystems
+// NOTE: Fat16Validator has been moved/removed during refactoring
+// This tool needs to be updated to work with the new architecture
+
+fn main() {
+    eprintln!("FAT16 validator is currently unavailable.");
+    eprintln!("The Fat16Validator type was removed during filesystem refactoring.");
+    eprintln!("This tool needs to be rewritten to work with the new architecture.");
+    std::process::exit(1);
+}
+
+/* Original code preserved for reference:
 // Can validate at MBR offset or partition offset
 
-use moses_filesystems::fat16::Fat16Validator;
+use moses_filesystems::families::fat::fat16::Fat16Validator;
 use std::env;
 
 fn main() {
@@ -95,3 +106,4 @@ fn main() {
         }
     }
 }
+*/

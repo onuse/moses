@@ -1,11 +1,8 @@
 // Simple test program for NTFS writer functionality
 // Creates a test NTFS volume and attempts to create a file
 
-use moses_filesystems::ntfs::{NtfsFormatter, NtfsWriter, NtfsReader, NtfsWriteConfig};
+use moses_filesystems::families::ntfs::ntfs::{NtfsFormatter, NtfsWriter, NtfsReader, NtfsWriteConfig};
 use moses_core::{Device, DeviceType};
-use std::fs::File;
-use std::io::Write;
-use std::path::PathBuf;
 use tempfile::NamedTempFile;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,7 +39,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Step 2: Open with reader to verify format
     println!("\n2. Verifying format with reader...");
-    let reader = NtfsReader::new(device.clone())?;
+    let mut reader = NtfsReader::new(device.clone())?;
     let info = reader.filesystem_info()?;
     println!("   Volume Label: {}", info.label.unwrap_or_else(|| "None".to_string()));
     println!("   Total Space: {} MB", info.total_bytes / 1024 / 1024);
@@ -62,7 +59,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     config.enable_writes = true;  // Enable actual writes
     config.verify_writes = true;  // Verify after writing
     
-    let mut writer = NtfsWriter::new(device.clone(), config)?;
+    let mut writer = NtfsWriter::new(device.clone(), config.clone())?;
     println!("   ✓ Writer initialized");
     
     // Step 5: Create a test file
@@ -74,7 +71,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n6. Listing directory after file creation...");
     // Re-open reader to get fresh view
     drop(writer);  // Close writer first
-    let reader2 = NtfsReader::new(device.clone())?;
+    let mut reader2 = NtfsReader::new(device.clone())?;
     let entries2 = reader2.list_directory("/")?;
     println!("   Files in root: {}", entries2.len());
     for entry in &entries2 {
@@ -90,7 +87,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     // Step 7: Try to write data to the file (if we can find it)
     println!("\n7. Testing file write operations...");
-    let mut writer2 = NtfsWriter::new(device.clone(), config)?;
+    let mut writer2 = NtfsWriter::new(device.clone(), config.clone())?;
     
     // Try to write some data
     let test_data = b"Hello, NTFS World!";

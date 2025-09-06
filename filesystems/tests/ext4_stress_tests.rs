@@ -3,7 +3,7 @@
 
 #[cfg(test)]
 mod stress_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -152,7 +152,7 @@ mod stress_tests {
 
 #[cfg(test)]
 mod edge_case_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     use moses_filesystems::ops::FilesystemOps;
     
     #[test]
@@ -259,7 +259,7 @@ mod edge_case_tests {
 
 #[cfg(test)]
 mod recovery_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     
     #[test]
     fn test_orphan_inode_cleanup() {
@@ -296,7 +296,7 @@ mod recovery_tests {
 
 #[cfg(test)]
 mod memory_tests {
-    use moses_filesystems::ext4_native::ops::Ext4Ops;
+    use moses_filesystems::families::ext::ext4_native::ops::Ext4Ops;
     
     #[test]
     fn test_cache_memory_limits() {

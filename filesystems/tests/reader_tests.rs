@@ -90,7 +90,7 @@ async fn test_format_and_read_ext4() {
     // Should find lost+found
     let lost_found = entries.iter().find(|e| e.name == "lost+found");
     assert!(lost_found.is_some());
-    assert_eq!(lost_found.unwrap().entry_type, moses_filesystems::ext4_native::reader::FileType::Directory);
+    assert_eq!(lost_found.unwrap().entry_type, moses_filesystems::families::ext::ext4_native::reader::FileType::Directory);
     
     // Keep temp_file alive until the end of the test
     drop(temp_file);
@@ -212,7 +212,7 @@ fn test_ext_reader_file_operations() {
 #[test]
 fn test_fat32_reader_operations() {
     // Test FAT32 specific operations like 8.3 name parsing
-    use moses_filesystems::fat32::reader::Fat32Reader;
+    use moses_filesystems::families::fat::fat32::reader::Fat32Reader;
     
     // Test 8.3 name parsing (this is a static method we'd need to make public)
     // assert_eq!(Fat32Reader::parse_83_name(b"README  TXT"), "README.TXT");

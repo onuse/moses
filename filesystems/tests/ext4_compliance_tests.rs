@@ -3,8 +3,8 @@
 
 #[cfg(test)]
 mod specification_compliance {
-    use moses_filesystems::ext4_native::core::structures::*;
-    use moses_filesystems::ext4_native::core::constants::*;
+    use moses_filesystems::families::ext::ext4_native::core::structures::*;
+    use moses_filesystems::families::ext::ext4_native::core::constants::*;
     
     #[test]
     fn test_ext4_spec_revision() {
@@ -212,7 +212,7 @@ mod extended_attribute_tests {
 
 #[cfg(test)]
 mod feature_flag_tests {
-    use moses_filesystems::ext4_native::core::structures::*;
+    use moses_filesystems::families::ext::ext4_native::core::structures::*;
     
     #[test]
     fn test_compat_features() {

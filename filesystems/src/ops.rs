@@ -446,7 +446,7 @@ impl FilesystemOps for HostFolderOps {
 
 /// Register all built-in filesystem operations
 pub fn register_builtin_ops(registry: &mut FilesystemOpsRegistry) {
-    use crate::ext4_native::{Ext4Ops, ExtOpsDetector};
+    use crate::families::ext::ext4_native::{Ext4Ops, ExtOpsDetector};
     
     // Register ext4 operations (supports ext2/ext3/ext4)
     registry.register_ops("ext4", |device| {

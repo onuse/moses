@@ -94,30 +94,24 @@ impl WindowsDeviceManager {
     fn detect_partition_table_type(device_path: &str) -> Option<String> {
         log::debug!("Detecting partition table type for device: {}", device_path);
         
-        // Create a temporary Device struct for the diagnostics module
-        let device = Device {
-            id: device_path.to_string(),
-            name: "Temp".to_string(),
-            size: 0,
-            device_type: DeviceType::Unknown,
-            is_removable: false,
-            is_system: false,
-            mount_points: vec![],
-            filesystem: None,
+        // Try to detect partition table type by reading the device
+        let mut file = match File::open(device_path) {
+            Ok(f) => f,
+            Err(e) => {
+                log::debug!("Failed to open device {} for partition table detection: {}", device_path, e);
+                return None;
+            }
         };
         
-        // Use the diagnostics module to get filesystem/partition table type
-        match moses_filesystems::diagnostics::get_filesystem_type(&device) {
-            Ok(fs_type) => {
-                // Only return if it's a partition table type, not a filesystem
-                if fs_type == "gpt" || fs_type == "gpt-empty" || fs_type == "mbr" {
-                    log::info!("Detected {} partition table on {}", fs_type, device_path);
-                    Some(fs_type)
-                } else if fs_type != "unknown" {
-                    // It's actually a filesystem, return it
-                    log::info!("Detected {} filesystem on {}", fs_type, device_path);
-                    Some(fs_type)
+        // Use the detection module to check if it's a filesystem or partition table
+        match moses_filesystems::detection::detect_filesystem(&mut file) {
+            Ok(detected_type) => {
+                // Check if it's a partition table type
+                if detected_type == "gpt" || detected_type == "gpt-empty" || detected_type == "mbr" {
+                    log::info!("Detected {} partition table on {}", detected_type, device_path);
+                    Some(detected_type)
                 } else {
+                    // Not a partition table, might be a filesystem
                     None
                 }
             }

@@ -58,20 +58,20 @@ impl LockedDevice {
 /// Time-limited, single-use safety approval
 pub struct SafetyApproval {
     device: Arc<Device>,
-    token: String,
+    _token: String,
     expires_at: DateTime<Utc>,
     used: Arc<Mutex<bool>>,
-    approval_id: String,
+    _approval_id: String,
 }
 
 impl SafetyApproval {
     pub fn new(device: Arc<Device>, token: String, duration_minutes: i64) -> Self {
         Self {
             device,
-            token,
+            _token: token,
             expires_at: Utc::now() + chrono::Duration::minutes(duration_minutes),
             used: Arc::new(Mutex::new(false)),
-            approval_id: generate_token(),
+            _approval_id: generate_token(),
         }
     }
     

@@ -70,7 +70,7 @@ async fn test_format_write_read_cycle(
 }
 
 async fn verify_ext_filesystem(device: &Device, expected_version: &str) {
-    use moses_filesystems::ext4_native::{ExtReader, core::ext_config::ExtVersion, reader::FileType};
+    use moses_filesystems::families::ext::ext4_native::{ExtReader, core::ext_config::ExtVersion, reader::FileType};
     
     let mut reader = ExtReader::new(device.clone()).expect("Should open ext filesystem");
     

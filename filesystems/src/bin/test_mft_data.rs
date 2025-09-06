@@ -1,6 +1,6 @@
 // Test MFT DATA attribute creation
-use moses_filesystems::ntfs::mft_writer::MftRecordBuilder;
-use moses_filesystems::ntfs::structures::*;
+use moses_filesystems::families::ntfs::ntfs::mft_writer::MftRecordBuilder;
+use moses_filesystems::families::ntfs::ntfs::structures::*;
 
 fn main() {
     println!("Testing MFT DATA attribute creation...\n");
