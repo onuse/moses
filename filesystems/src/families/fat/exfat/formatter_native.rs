@@ -61,10 +61,10 @@ impl ExFatNativeFormatter {
             cluster_heap_offset: boot_sectors + fat_sectors,
             cluster_count: usable_clusters as u32,
             first_cluster_of_root: (heap_clusters + 2) as u32,  // After bitmap and upcase
-            _bitmap_start_cluster: 2,  // First data cluster
+            bitmap_start_cluster: 2,  // First data cluster
             bitmap_length: bitmap_clusters as u32,
             upcase_start_cluster: (2 + bitmap_clusters) as u32,
-            _upcase_length: upcase_clusters as u32,
+            upcase_length: upcase_clusters as u32,
         }
     }
     
@@ -105,33 +105,39 @@ impl ExFatNativeFormatter {
         // First cluster of root directory (4 bytes) - offset 96
         boot[96..100].copy_from_slice(&params.first_cluster_of_root.to_le_bytes());
         
-        // Volume serial number (4 bytes) - offset 100
-        boot[100..104].copy_from_slice(&volume_serial.to_le_bytes());
+        // Bitmap start cluster (4 bytes) - offset 100
+        boot[100..104].copy_from_slice(&params.bitmap_start_cluster.to_le_bytes());
         
-        // File system revision (2 bytes) - offset 104
-        boot[104..106].copy_from_slice(&0x0100u16.to_le_bytes());  // Version 1.00
+        // Bitmap length in clusters (4 bytes) - offset 104
+        boot[104..108].copy_from_slice(&params.bitmap_length.to_le_bytes());
         
-        // Volume flags (2 bytes) - offset 106
+        // Volume serial number (4 bytes) - offset 108
+        boot[108..112].copy_from_slice(&volume_serial.to_le_bytes());
+        
+        // File system revision (2 bytes) - offset 112
+        boot[112..114].copy_from_slice(&0x0100u16.to_le_bytes());  // Version 1.00
+        
+        // Volume flags (2 bytes) - offset 114
         // Bit 0: ActiveFAT (0 = first FAT, 1 = second FAT)
         // Bit 1: VolumeDirty (0 = clean, 1 = dirty)
         // Bit 2: MediaFailure (0 = no failures, 1 = failures reported)
         let volume_flags: u16 = 0x0000;  // Clean volume, first FAT active, no failures
-        boot[106..108].copy_from_slice(&volume_flags.to_le_bytes());
+        boot[114..116].copy_from_slice(&volume_flags.to_le_bytes());
         
-        // Bytes per sector shift (1 byte) - offset 108
-        boot[108] = params.bytes_per_sector.trailing_zeros() as u8;
+        // Bytes per sector shift (1 byte) - offset 116
+        boot[116] = params.bytes_per_sector.trailing_zeros() as u8;
         
-        // Sectors per cluster shift (1 byte) - offset 109
-        boot[109] = params.sectors_per_cluster.trailing_zeros() as u8;
+        // Sectors per cluster shift (1 byte) - offset 117
+        boot[117] = params.sectors_per_cluster.trailing_zeros() as u8;
         
-        // Number of FATs (1 byte) - offset 110
-        boot[110] = 1;  // exFAT typically uses 1 FAT
+        // Number of FATs (1 byte) - offset 118
+        boot[118] = 1;  // exFAT typically uses 1 FAT
         
-        // Drive select (1 byte) - offset 111
-        boot[111] = 0x80;  // Hard disk
+        // Drive select (1 byte) - offset 119
+        boot[119] = 0x80;  // Hard disk
         
-        // Percent in use (1 byte) - offset 112
-        boot[112] = 0;  // 0% used initially
+        // Percent in use (1 byte) - offset 120
+        boot[120] = 0;  // 0% used initially
         
         // Reserved (7 bytes) - offset 113
         // Already zero
@@ -152,8 +158,8 @@ impl ExFatNativeFormatter {
         
         // Process boot sector (sector 0)
         for i in 0..512 {
-            // Skip VolumeFlags (106-107) and PercentInUse (112)
-            if i == 106 || i == 107 || i == 112 {
+            // Skip VolumeFlags (114-115), PercentInUse (120), and Bitmap fields (100-107)
+            if (100..=107).contains(&i) || i == 114 || i == 115 || i == 120 {
                 continue;
             }
             // Official algorithm: if LSB is 1, add 0x80000000 after shift
@@ -501,8 +507,8 @@ struct ExFatParams {
     cluster_heap_offset: u64,
     cluster_count: u32,
     first_cluster_of_root: u32,
-    _bitmap_start_cluster: u32,
+    bitmap_start_cluster: u32,
     bitmap_length: u32,
     upcase_start_cluster: u32,
-    _upcase_length: u32,
+    upcase_length: u32,
 }
