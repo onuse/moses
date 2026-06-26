@@ -8,6 +8,7 @@ pub mod path_resolver;
 pub mod file_ops;
 pub mod validator;
 pub mod ops;
+pub mod tests;
 
 // Use the native formatter as default (like FAT16)
 pub use formatter_native::Fat32NativeFormatter as Fat32Formatter;

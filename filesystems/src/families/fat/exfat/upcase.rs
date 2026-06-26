@@ -103,7 +103,7 @@ pub fn calculate_upcase_checksum(table: &[u8]) -> u32 {
     // Process as 32-bit words
     for chunk in table.chunks_exact(4) {
         let value = u32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
-        checksum = ((checksum << 31) | (checksum >> 1)) + value;
+        checksum = ((checksum << 31) | (checksum >> 1)).wrapping_add(value);
     }
     
     checksum

@@ -97,7 +97,7 @@ fn is_valid_83_char(c: u8) -> bool {
     match c {
         b'A'..=b'Z' | b'0'..=b'9' | b'!' | b'#' | b'$' | b'%' | b'&' | 
         b'\'' | b'(' | b')' | b'-' | b'@' | b'^' | b'_' | b'`' | 
-        b'{' | b'}' | b'~' => true,
+        b'{' | b'}' | b'~' | b'.' => true,
         _ => false,
     }
 }

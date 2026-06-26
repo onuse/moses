@@ -13,6 +13,7 @@ pub mod validator;
 pub mod directory_entries;
 pub mod file_operations;
 pub mod ops;
+pub mod tests;
 
 // Use the native formatter as default
 pub use formatter_native::ExFatNativeFormatter as ExFatFormatter;
