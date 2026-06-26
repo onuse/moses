@@ -253,6 +253,8 @@ mod tests {
         assert_eq!(entries[0].entry_type(), EXFAT_ENTRY_FILE);
         
         // Check that cluster was allocated
-        assert_eq!(allocator.free_clusters(), 255); // One cluster used
+        // Note: clusters 0 and 1 are reserved, so 256 total clusters = 254 allocatable
+        // After allocating 1, we should have 253 free
+        assert_eq!(allocator.free_clusters(), 253);
     }
 }
